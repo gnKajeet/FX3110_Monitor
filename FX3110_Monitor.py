@@ -3,17 +3,17 @@ import time
 import socket
 import re
 import json
+import os
 from datetime import datetime
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
 # --- Network Configuration ---
-# Network interface to use for FX3110 communication (set to None for auto-detect)
-# On Raspberry Pi with ethernet + WiFi, set this to "eth0" to force FX3110 traffic over ethernet
-BIND_INTERFACE = None  # e.g., "eth0" for Raspberry Pi ethernet
+# Read from environment or use defaults
+BIND_INTERFACE = os.getenv("BIND_INTERFACE") or None  # e.g., "eth0" for Raspberry Pi ethernet
 
 # --- Targets ---
-DEST = "8.8.8.8"
+DEST = os.getenv("DEST", "8.8.8.8")
 
 # --- Public IP providers ---
 PUBLIC_IP_URLS = [
@@ -45,6 +45,26 @@ def get_source_ip(dest: str) -> str:
         return s.getsockname()[0]
     finally:
         s.close()
+
+
+def get_active_interface(dest: str) -> str:
+    """Detect which network interface is being used to reach dest."""
+    try:
+        # Use ip route to determine the interface
+        result = subprocess.run(
+            ["ip", "route", "get", dest],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result.returncode == 0:
+            # Parse output like: "8.8.8.8 via 192.168.1.1 dev eth0 src 192.168.1.14"
+            match = re.search(r'\bdev\s+(\S+)', result.stdout)
+            if match:
+                return match.group(1)
+    except Exception:
+        pass
+    return "unknown"
 
 
 def get_latency_ms(ping_output: str) -> str:
@@ -156,8 +176,8 @@ def get_connected_devices_snapshot():
 
 # --- Header ---
 print(
-    "Timestamp\tSourceIP\tDestIP\tSuccess\tLatency_ms\tPublicIP\t"
-    "WanStatus\tSimStatus\tTech\tBand\tBandwidth\tDeviceIPv4\tCarrier\tAPN\tICCID\t"
+    "Timestamp\tSourceIP\tActiveInterface\tDestIP\tSuccess\tLatency_ms\tPublicIP\t"
+    "WanStatus\tWanSource\tSimStatus\tTech\tBand\tBandwidth\tDeviceIPv4\tCarrier\tAPN\tICCID\t"
     "ECGI\tPCI\tRSRP\tRSRQ\tSNR\t"
     "ConnDevCount\tConnDevNames"
 )
@@ -197,6 +217,7 @@ while True:
     # Ping once
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     src_ip = get_source_ip(DEST)
+    active_interface = get_active_interface(DEST)
 
     # Build ping command with optional interface binding
     ping_cmd = ["ping", "-c", "1"]
@@ -213,9 +234,14 @@ while True:
     success = proc.returncode == 0
     latency = get_latency_ms(proc.stdout)
 
+    # Determine WAN source based on cellular metrics
+    tech = status.get('Tech', '')
+    rsrp = status.get('RSRP', '')
+    wan_source = "Cellular" if (tech and rsrp) else "Ethernet" if status.get('WanStatus') == 'Connected' else "Unknown"
+
     print(
-        f"{ts}\t{src_ip}\t{DEST}\t{success}\t{latency}\t{last_public_ip}\t"
-        f"{status.get('WanStatus','')}\t{status.get('SimStatus','')}\t{status.get('Tech','')}\t"
+        f"{ts}\t{src_ip}\t{active_interface}\t{DEST}\t{success}\t{latency}\t{last_public_ip}\t"
+        f"{status.get('WanStatus','')}\t{wan_source}\t{status.get('SimStatus','')}\t{status.get('Tech','')}\t"
         f"{status.get('Band','')}\t{status.get('Bandwidth','')}\t{status.get('DeviceIPv4','')}\t"
         f"{status.get('Carrier','')}\t{status.get('APN','')}\t{status.get('ICCID','')}\t"
         f"{status.get('ECGI','')}\t{status.get('PCI','')}\t{status.get('RSRP','')}\t"

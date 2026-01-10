@@ -41,11 +41,13 @@ class LogParser:
             return {
                 "timestamp": row.get("Timestamp", ""),
                 "source_ip": row.get("SourceIP", ""),
+                "active_interface": row.get("ActiveInterface", ""),
                 "dest_ip": row.get("DestIP", ""),
                 "success": row.get("Success", "").lower() == "true",
                 "latency_ms": int(row.get("Latency_ms", "0") or "0"),
                 "public_ip": row.get("PublicIP", ""),
                 "wan_status": row.get("WanStatus", ""),
+                "wan_source": row.get("WanSource", ""),
                 "sim_status": row.get("SimStatus", ""),
                 "technology": row.get("Tech", ""),
                 "band": row.get("Band", ""),
@@ -111,7 +113,7 @@ class LogParser:
         recent = list(self.cache)[-100:]  # Check last 100 entries
 
         # Track fields to monitor for changes
-        watch_fields = ["public_ip", "carrier", "apn", "iccid", "device_ipv4"]
+        watch_fields = ["wan_source", "active_interface", "public_ip", "carrier", "apn", "iccid", "device_ipv4"]
 
         for i in range(1, len(recent)):
             prev = recent[i - 1]

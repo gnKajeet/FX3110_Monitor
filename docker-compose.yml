@@ -12,14 +12,12 @@ services:
       - /etc/localtime:/etc/localtime:ro  # Sync container time with host
     environment:
       - PYTHONUNBUFFERED=1  # Ensure logs are written immediately
+      - BIND_INTERFACE=eth0  # Force traffic through ethernet
+      - DEST=8.8.8.8
+      - DEVICE_BASE=http://192.168.1.1
     cap_add:
       - NET_RAW  # Required for ping
       - NET_ADMIN  # Required for network interface binding
-    # Override default config via environment (optional)
-    # environment:
-    #   - BIND_INTERFACE=eth0
-    #   - DEST=8.8.8.8
-    #   - DEVICE_BASE=http://192.168.1.1
 
   # Data API service with dashboard
   fx3110-api:

@@ -210,6 +210,10 @@
         .latency-good { color: #10b981; }
         .latency-ok { color: #f59e0b; }
         .latency-bad { color: #ef4444; }
+
+        .interface-eth0 { color: #10b981; }
+        .interface-wlan0 { color: #f59e0b; }
+        .interface-unknown { color: #ef4444; }
     </style>
 </head>
 <body>
@@ -224,11 +228,25 @@
         </div>
 
         <div class="grid">
+            <!-- FX3110 WAN Source - Most Important -->
+            <div class="card">
+                <h2>🌐 FX3110 WAN Source</h2>
+                <div class="large-value" id="wanSource">-</div>
+                <div class="stat-row">
+                    <span class="stat-label">RPi Interface</span>
+                    <span class="stat-value" id="activeInterface">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Public IP</span>
+                    <span class="stat-value" id="publicIp">-</span>
+                </div>
+            </div>
+
             <!-- Connection Status -->
             <div class="card">
                 <h2>Connection Status</h2>
                 <div class="stat-row">
-                    <span class="stat-label">Status</span>
+                    <span class="stat-label">WAN Status</span>
                     <span class="stat-value" id="wanStatus">-</span>
                 </div>
                 <div class="stat-row">
@@ -236,11 +254,7 @@
                     <span class="stat-value" id="pingSuccess">-</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Public IP</span>
-                    <span class="stat-value" id="publicIp">-</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Device IP</span>
+                    <span class="stat-label">Device IPv4</span>
                     <span class="stat-value" id="deviceIp">-</span>
                 </div>
             </div>
@@ -335,7 +349,7 @@
 
         <!-- Changes -->
         <div class="card">
-            <h2>Recent Changes (IP, Carrier, APN, ICCID)</h2>
+            <h2>🔄 Recent Changes (WAN Source, IP, Carrier, APN, ICCID)</h2>
             <div class="changes-list" id="changesList">
                 <div style="text-align: center; color: #9ba3af; padding: 20px;">
                     No changes detected
@@ -372,12 +386,21 @@
         function updateStatus(data) {
             if (!data) return;
 
+            // WAN Source (Most Important)
+            const wanSource = data.wan_source || 'Unknown';
+            const wanSourceClass = wanSource === 'Cellular' ? 'interface-eth0' :
+                                   wanSource === 'Ethernet' ? 'interface-wlan0' : 'interface-unknown';
+            document.getElementById('wanSource').textContent = wanSource;
+            document.getElementById('wanSource').className = `large-value ${wanSourceClass}`;
+
+            document.getElementById('activeInterface').textContent = data.active_interface || '-';
+            document.getElementById('publicIp').textContent = data.public_ip || '-';
+
             // Connection status
             document.getElementById('wanStatus').textContent = data.wan_status || '-';
             document.getElementById('pingSuccess').innerHTML = data.success
                 ? '<span class="status-badge status-connected">Connected</span>'
                 : '<span class="status-badge status-disconnected">Disconnected</span>';
-            document.getElementById('publicIp').textContent = data.public_ip || '-';
             document.getElementById('deviceIp').textContent = data.device_ipv4 || '-';
 
             // Latency
