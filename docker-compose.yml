@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # FX3110 Monitoring Service
+  fx3110-monitor:
+    build: .
+    container_name: fx3110-monitor
+    restart: unless-stopped
+    network_mode: host  # Use host networking to access eth0 interface directly
+    volumes:
+      - ./logs:/logs
+      - /etc/localtime:/etc/localtime:ro  # Sync container time with host
+    environment:
+      - PYTHONUNBUFFERED=1  # Ensure logs are written immediately
+    cap_add:
+      - NET_RAW  # Required for ping
+      - NET_ADMIN  # Required for network interface binding
+    # Override default config via environment (optional)
+    # environment:
+    #   - BIND_INTERFACE=eth0
+    #   - DEST=8.8.8.8
+    #   - DEVICE_BASE=http://192.168.1.1
+
+  # Future: Data API service (uncomment when ready)
+  # fx3110-api:
+  #   build: ./api
+  #   container_name: fx3110-api
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"  # Expose API on WiFi interface
+  #   volumes:
+  #     - ./logs:/logs:ro  # Read-only access to monitor logs
+  #   depends_on:
+  #     - fx3110-monitor
+
+  # Future: Time-series database (optional)
+  # influxdb:
+  #   image: influxdb:2.7-alpine
+  #   container_name: fx3110-influxdb
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8086:8086"
+  #   volumes:
+  #     - influxdb-data:/var/lib/influxdb2
+  #   environment:
+  #     - DOCKER_INFLUXDB_INIT_MODE=setup
+  #     - DOCKER_INFLUXDB_INIT_USERNAME=admin
+  #     - DOCKER_INFLUXDB_INIT_PASSWORD=changeme123
+  #     - DOCKER_INFLUXDB_INIT_ORG=fx3110
+  #     - DOCKER_INFLUXDB_INIT_BUCKET=monitoring
+
+  # Future: Visualization dashboard (optional)
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: fx3110-grafana
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - grafana-data:/var/lib/grafana
+  #   depends_on:
+  #     - influxdb
+
+volumes:
+  influxdb-data:
+  grafana-data:

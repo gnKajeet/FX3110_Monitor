@@ -7,6 +7,11 @@ from datetime import datetime
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
+# --- Network Configuration ---
+# Network interface to use for FX3110 communication (set to None for auto-detect)
+# On Raspberry Pi with ethernet + WiFi, set this to "eth0" to force FX3110 traffic over ethernet
+BIND_INTERFACE = None  # e.g., "eth0" for Raspberry Pi ethernet
+
 # --- Targets ---
 DEST = "8.8.8.8"
 
@@ -43,10 +48,14 @@ def get_source_ip(dest: str) -> str:
 
 
 def get_latency_ms(ping_output: str) -> str:
-    """Extract RTT from Windows ping output."""
+    """Extract RTT from ping output (Windows or Linux)."""
     # Windows formats: time=14ms, time<1ms
-    m = re.search(r"time[=<]\s*(\d+)\s*ms", ping_output)
-    return m.group(1) if m else ""
+    # Linux formats: time=14.2 ms, time=0.123 ms
+    m = re.search(r"time[=<]\s*(\d+(?:\.\d+)?)\s*ms", ping_output)
+    if m:
+        # Round to integer milliseconds for consistency
+        return str(int(float(m.group(1))))
+    return ""
 
 
 def fetch_text(url: str, timeout_seconds: float = 3.0) -> str:
@@ -189,8 +198,14 @@ while True:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     src_ip = get_source_ip(DEST)
 
+    # Build ping command with optional interface binding
+    ping_cmd = ["ping", "-c", "1"]
+    if BIND_INTERFACE:
+        ping_cmd.extend(["-I", BIND_INTERFACE])
+    ping_cmd.append(DEST)
+
     proc = subprocess.run(
-        ["ping", "-n", "1", DEST],
+        ping_cmd,
         capture_output=True,
         text=True,
     )
