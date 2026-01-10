@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX3110 Monitor Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #0f1419;
+            color: #e4e6eb;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            opacity: 0.9;
+            margin-top: 8px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: #1c1e26;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            border: 1px solid #2d3139;
+        }
+
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            color: #9ba3af;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #2d3139;
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: #9ba3af;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            color: #e4e6eb;
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-connected {
+            background: #10b981;
+            color: white;
+        }
+
+        .status-disconnected {
+            background: #ef4444;
+            color: white;
+        }
+
+        .status-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .signal-meter {
+            width: 100%;
+            height: 24px;
+            background: #2d3139;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .signal-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ef4444, #f59e0b, #10b981);
+            transition: width 0.5s ease;
+            border-radius: 12px;
+        }
+
+        .signal-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 12px;
+            font-weight: 700;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .changes-list, .anomalies-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .change-item, .anomaly-item {
+            background: #2d3139;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .anomaly-item.critical {
+            border-left-color: #ef4444;
+        }
+
+        .anomaly-item.warning {
+            border-left-color: #f59e0b;
+        }
+
+        .timestamp {
+            font-size: 12px;
+            color: #9ba3af;
+            margin-bottom: 4px;
+        }
+
+        .change-detail {
+            font-size: 14px;
+        }
+
+        .change-old {
+            color: #ef4444;
+            text-decoration: line-through;
+        }
+
+        .change-new {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .refresh-indicator {
+            text-align: center;
+            padding: 10px;
+            color: #9ba3af;
+            font-size: 12px;
+        }
+
+        .refresh-indicator.loading {
+            color: #667eea;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .large-value {
+            font-size: 48px;
+            font-weight: 700;
+            text-align: center;
+            margin: 20px 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        .latency-good { color: #10b981; }
+        .latency-ok { color: #f59e0b; }
+        .latency-bad { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>FX3110 Monitor Dashboard</h1>
+            <div class="subtitle">Real-time cellular modem monitoring</div>
+        </header>
+
+        <div class="refresh-indicator" id="refreshStatus">
+            Last updated: Never
+        </div>
+
+        <div class="grid">
+            <!-- Connection Status -->
+            <div class="card">
+                <h2>Connection Status</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Status</span>
+                    <span class="stat-value" id="wanStatus">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Ping Success</span>
+                    <span class="stat-value" id="pingSuccess">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Public IP</span>
+                    <span class="stat-value" id="publicIp">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Device IP</span>
+                    <span class="stat-value" id="deviceIp">-</span>
+                </div>
+            </div>
+
+            <!-- Latency -->
+            <div class="card">
+                <h2>Latency</h2>
+                <div class="large-value" id="latencyValue">- ms</div>
+                <div class="stat-row">
+                    <span class="stat-label">Min</span>
+                    <span class="stat-value" id="latencyMin">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Avg</span>
+                    <span class="stat-value" id="latencyAvg">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Max</span>
+                    <span class="stat-value" id="latencyMax">-</span>
+                </div>
+            </div>
+
+            <!-- Cellular Info -->
+            <div class="card">
+                <h2>Cellular Info</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Carrier</span>
+                    <span class="stat-value" id="carrier">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Technology</span>
+                    <span class="stat-value" id="technology">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Band</span>
+                    <span class="stat-value" id="band">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Bandwidth</span>
+                    <span class="stat-value" id="bandwidth">-</span>
+                </div>
+            </div>
+
+            <!-- Signal Strength -->
+            <div class="card">
+                <h2>Signal Strength</h2>
+                <div class="stat-row">
+                    <span class="stat-label">RSRP</span>
+                    <span class="stat-value" id="rsrp">-</span>
+                </div>
+                <div class="signal-meter">
+                    <div class="signal-fill" id="rsrpMeter"></div>
+                    <div class="signal-text" id="rsrpPercent">-</div>
+                </div>
+                <div class="stat-row" style="margin-top: 16px;">
+                    <span class="stat-label">RSRQ</span>
+                    <span class="stat-value" id="rsrq">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">SNR</span>
+                    <span class="stat-value" id="snr">-</span>
+                </div>
+            </div>
+
+            <!-- SIM Info -->
+            <div class="card">
+                <h2>SIM Card</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Status</span>
+                    <span class="stat-value" id="simStatus">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">APN</span>
+                    <span class="stat-value" id="apn">-</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">ICCID</span>
+                    <span class="stat-value" id="iccid" style="font-size: 11px;">-</span>
+                </div>
+            </div>
+
+            <!-- Connected Devices -->
+            <div class="card">
+                <h2>Connected Devices</h2>
+                <div class="large-value" id="deviceCount">0</div>
+                <div class="stat-row">
+                    <span class="stat-label">Devices</span>
+                    <span class="stat-value" id="deviceNames">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Changes -->
+        <div class="card">
+            <h2>Recent Changes (IP, Carrier, APN, ICCID)</h2>
+            <div class="changes-list" id="changesList">
+                <div style="text-align: center; color: #9ba3af; padding: 20px;">
+                    No changes detected
+                </div>
+            </div>
+        </div>
+
+        <!-- Anomalies -->
+        <div class="card" style="margin-top: 20px;">
+            <h2>Anomalies & Alerts</h2>
+            <div class="anomalies-list" id="anomaliesList">
+                <div style="text-align: center; color: #9ba3af; padding: 20px;">
+                    No anomalies detected
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        const REFRESH_INTERVAL = 5000; // 5 seconds
+
+        async function fetchData(endpoint) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                console.error(`Error fetching ${endpoint}:`, error);
+                return null;
+            }
+        }
+
+        function updateStatus(data) {
+            if (!data) return;
+
+            // Connection status
+            document.getElementById('wanStatus').textContent = data.wan_status || '-';
+            document.getElementById('pingSuccess').innerHTML = data.success
+                ? '<span class="status-badge status-connected">Connected</span>'
+                : '<span class="status-badge status-disconnected">Disconnected</span>';
+            document.getElementById('publicIp').textContent = data.public_ip || '-';
+            document.getElementById('deviceIp').textContent = data.device_ipv4 || '-';
+
+            // Latency
+            const latency = data.latency_ms || 0;
+            const latencyClass = latency < 100 ? 'latency-good' : latency < 200 ? 'latency-ok' : 'latency-bad';
+            document.getElementById('latencyValue').textContent = `${latency} ms`;
+            document.getElementById('latencyValue').className = `large-value ${latencyClass}`;
+
+            // Cellular
+            document.getElementById('carrier').textContent = data.carrier || '-';
+            document.getElementById('technology').textContent = data.technology || '-';
+            document.getElementById('band').textContent = data.band || '-';
+            document.getElementById('bandwidth').textContent = data.bandwidth || '-';
+
+            // Signal
+            document.getElementById('rsrp').textContent = data.rsrp || '-';
+            document.getElementById('rsrq').textContent = data.rsrq || '-';
+            document.getElementById('snr').textContent = data.snr || '-';
+
+            // RSRP meter (-140 to -44 dBm scale)
+            if (data.rsrp) {
+                const rsrpValue = parseInt(data.rsrp.split(' ')[0]);
+                const rsrpPercent = Math.max(0, Math.min(100, ((rsrpValue + 140) / 96) * 100));
+                document.getElementById('rsrpMeter').style.width = `${rsrpPercent}%`;
+                document.getElementById('rsrpPercent').textContent = `${rsrpPercent.toFixed(0)}%`;
+            }
+
+            // SIM
+            document.getElementById('simStatus').textContent = data.sim_status || '-';
+            document.getElementById('apn').textContent = data.apn || '-';
+            document.getElementById('iccid').textContent = data.iccid || '-';
+
+            // Devices
+            document.getElementById('deviceCount').textContent = data.conn_dev_count || '0';
+            document.getElementById('deviceNames').textContent = data.conn_dev_names || '-';
+        }
+
+        function updateStats(data) {
+            if (!data) return;
+
+            document.getElementById('latencyMin').textContent = `${data.latency.min} ms`;
+            document.getElementById('latencyAvg').textContent = `${data.latency.avg.toFixed(1)} ms`;
+            document.getElementById('latencyMax').textContent = `${data.latency.max} ms`;
+        }
+
+        function updateChanges(data) {
+            if (!data || !data.changes || data.changes.length === 0) return;
+
+            const container = document.getElementById('changesList');
+            container.innerHTML = '';
+
+            data.changes.reverse().forEach(change => {
+                const item = document.createElement('div');
+                item.className = 'change-item';
+                item.innerHTML = `
+                    <div class="timestamp">${change.timestamp}</div>
+                    <div class="change-detail">
+                        <strong>${change.field.replace(/_/g, ' ').toUpperCase()}</strong>:
+                        <span class="change-old">${change.old_value || '(empty)'}</span>
+                        →
+                        <span class="change-new">${change.new_value}</span>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function updateAnomalies(data) {
+            if (!data || !data.anomalies || data.anomalies.length === 0) {
+                return;
+            }
+
+            const container = document.getElementById('anomaliesList');
+            container.innerHTML = '';
+
+            data.anomalies.reverse().forEach(anomaly => {
+                const item = document.createElement('div');
+                item.className = `anomaly-item ${anomaly.severity}`;
+                item.innerHTML = `
+                    <div class="timestamp">${anomaly.timestamp}</div>
+                    <div class="change-detail">
+                        <strong>${anomaly.type.replace(/_/g, ' ').toUpperCase()}</strong>:
+                        ${anomaly.message}
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        async function refreshDashboard() {
+            const refreshStatus = document.getElementById('refreshStatus');
+            refreshStatus.textContent = 'Refreshing...';
+            refreshStatus.classList.add('loading');
+
+            const [status, stats, changes, anomalies] = await Promise.all([
+                fetchData('/status'),
+                fetchData('/stats'),
+                fetchData('/changes'),
+                fetchData('/anomalies?rsrp_threshold=10&latency_threshold=50')
+            ]);
+
+            updateStatus(status);
+            updateStats(stats);
+            updateChanges(changes);
+            updateAnomalies(anomalies);
+
+            const now = new Date().toLocaleTimeString();
+            refreshStatus.textContent = `Last updated: ${now}`;
+            refreshStatus.classList.remove('loading');
+        }
+
+        // Initial load
+        refreshDashboard();
+
+        // Auto-refresh
+        setInterval(refreshDashboard, REFRESH_INTERVAL);
+    </script>
+</body>
+</html>
