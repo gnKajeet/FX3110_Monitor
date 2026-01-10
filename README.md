@@ -43,6 +43,17 @@ nano .env  # Set BIND_INTERFACE=eth0
 
 ```bash
 docker compose up -d
+```
+
+### 4. Access Dashboard
+
+Open your browser and navigate to:
+```
+http://<raspberry-pi-ip>:8080/
+```
+
+Or view raw logs:
+```bash
 tail -f logs/fx3110_log.tsv
 ```
 
@@ -74,13 +85,34 @@ Timestamp  SourceIP  DestIP  Success  Latency_ms  PublicIP  WanStatus  SimStatus
 
 Import into Excel, pandas, or any TSV-compatible tool for analysis.
 
+## Web Dashboard
+
+Access the real-time monitoring dashboard at `http://<raspberry-pi-ip>:8080/`
+
+**Features:**
+- Real-time status updates (5 second refresh)
+- Connection status and latency monitoring
+- Signal strength visualization with RSRP meter
+- Cellular network information (carrier, technology, band)
+- Change detection for IP addresses, carrier, APN, and ICCID
+- Anomaly detection for signal drops and latency spikes
+- Dark mode optimized for 24/7 monitoring
+
+**API Endpoints:**
+- `GET /api/status` - Current modem status
+- `GET /api/stats` - Statistical summary
+- `GET /api/recent?count=100` - Recent log entries
+- `GET /api/changes` - Detected configuration changes
+- `GET /api/anomalies?rsrp_threshold=10&latency_threshold=50` - Signal/latency anomalies
+- `GET /api/health` - Service health check
+
 ## Future Enhancements
 
-- REST API for remote data access
 - Time-series database integration (InfluxDB)
-- Real-time dashboard (Grafana)
-- Alerting and notifications
+- Advanced analytics dashboard (Grafana)
+- Email/SMS alerting on anomalies
 - Cellular data usage tracking
+- Historical trend analysis
 
 ## Requirements
 
