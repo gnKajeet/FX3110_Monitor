@@ -332,94 +332,7 @@ The FX3110 is marketed as a failover/backup solution for enterprise use cases. T
 
 ---
 
-## Recommended Solutions
 
-### Option 1: Enable Internet Connectivity Testing (If Available)
-
-**Action Required**:
-1. Access FX3110 web interface at http://192.168.9.1/wan/
-2. Navigate to WAN Failover settings
-3. Enable "Internet Connectivity Test" or similar feature
-4. Configure test endpoints:
-   - Primary: 8.8.8.8 (Google DNS)
-   - Secondary: 1.1.1.1 (Cloudflare DNS)
-   - Tertiary: inseego.com or kajeet.com
-5. Set failure threshold (e.g., 3 consecutive failures)
-6. Set test interval (e.g., every 30 seconds)
-
-**Status**: Requires investigation - feature may not exist in current firmware
-
----
-
-### Option 2: Firmware Update
-
-**Action Required**:
-1. Check current firmware version
-2. Contact Inseego support for latest firmware
-3. Review firmware release notes for failover improvements
-4. Test failover behavior after firmware upgrade
-
-**Risk**: Firmware updates may introduce new issues
-
----
-
-### Option 3: External Monitoring/Failover Control
-
-**Action Required**:
-1. Deploy external monitoring system (e.g., Raspberry Pi)
-2. Monitor end-to-end internet connectivity
-3. Use FX3110 API or web interface to force failover
-4. Implement watchdog to trigger failover when internet lost
-
-**Status**: Requires custom development and additional hardware
-
----
-
-### Option 4: API-Based Failover Management
-
-**Action Required**:
-1. Investigate FX3110 API capabilities
-2. Develop script to:
-   - Test internet connectivity from end device perspective
-   - Detect failures (3+ consecutive ping failures)
-   - Send API command to FX3110 to switch to cellular
-   - Monitor for recovery and failback to Ethernet
-
-**Status**: Requires API documentation from Inseego
-
----
-
-## Request to Inseego Engineering
-
-### Questions for Inseego Support
-
-1. **Does the FX3110 firmware support end-to-end internet connectivity testing?**
-   - If yes, where is this feature configured?
-   - If no, is this planned for a future firmware release?
-
-2. **What are the current failover detection criteria for Ethernet WAN?**
-   - Physical link status only?
-   - DHCP lease status?
-   - Gateway ping?
-   - Internet connectivity testing?
-
-3. **Can the failover logic be configured or customized?**
-   - Test endpoints configurable?
-   - Failure thresholds configurable?
-   - Test intervals configurable?
-
-4. **Is there an API or command-line interface to manually trigger failover?**
-   - REST API?
-   - SNMP?
-   - AT commands?
-   - Web scraping/automation?
-
-5. **What is the recommended configuration for enterprise failover scenarios?**
-   - Best practices documentation
-   - Configuration guide
-   - Known limitations
-
----
 
 ## Test Environment Details
 
@@ -507,19 +420,6 @@ Timestamp                   SourceIP      ActiveInterface  DestIP   Success  Lat
 
 ---
 
-## Contact Information
-
-**Prepared by**: Geoffrey Noakes
-**Organization**: [Your Organization]
-**Date**: January 12, 2026
-**Contact**: [Your Contact Information]
-
-**For Inseego Support**:
-- Technical Support: [Inseego support contact]
-- Product: FX3110 5G Indoor Router
-- Issue Category: WAN Failover / High Availability
-
----
 
 ## Revision History
 
