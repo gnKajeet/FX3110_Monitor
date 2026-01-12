@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>FX3110 Ethernet WAN Failover Test Report</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="FAILOVER_REPORT.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">FX3110 Ethernet WAN Failover Test Report</h1>
+</header>
+<h1 id="fx3110-ethernet-wan-failover-test-report">FX3110 Ethernet WAN
+Failover Test Report</h1>
+<p><strong>Date</strong>: 2026-01-12 <strong>Product</strong>: Inseego
+FX3110 5G Indoor Router <strong>Issue</strong>: Ethernet WAN does not
+failover to Cellular when upstream internet is blocked <strong>Reported
+by</strong>: Geoffrey Noakes</p>
+<hr />
+<h2 id="executive-summary">Executive Summary</h2>
+<p>The Inseego FX3110 fails to automatically failover from Ethernet WAN
+to Cellular WAN when upstream internet connectivity is lost, despite the
+Ethernet link remaining physically active. This creates a critical
+failure scenario where end devices (POS terminals, Raspberry Pi, etc.)
+lose internet connectivity even though the FX3110 has a functional
+cellular backup connection available.</p>
+<p><strong>Expected Behavior</strong>: When end devices cannot reach the
+internet through Ethernet WAN, the FX3110 should detect the failure and
+switch to Cellular WAN.</p>
+<p><strong>Actual Behavior</strong>: The FX3110 remains on Ethernet WAN
+as long as the physical link is up and DHCP is functional, even when
+internet connectivity is completely blocked upstream.</p>
+<hr />
+<h2 id="network-topology">Network Topology</h2>
+<h3 id="test-environment-architecture">Test Environment
+Architecture</h3>
+<pre><code>                                 INTERNET
+                                    |
+                                    |
+                        ┌───────────┴────────────┐
+                        │   Google Nest WiFi     │
+                        │   Router/Gateway       │
+                        │   192.168.86.1         │
+                        └───────────┬────────────┘
+                                    │
+                        ┌───────────┴─────────────┐
+                        │  BLOCKED/FILTERED       │ &lt;-- Traffic blocked here
+                        │  (Device blocking)      │
+                        └───────────┬─────────────┘
+                                    │
+                        ┌───────────┴────────────┐
+                        │  Inseego FX3110        │
+                        │  Ethernet WAN Port     │
+                        │  WAN IP: 192.168.86.48 │
+                        │  Status: &quot;Connected&quot;   │
+                        └───────────┬────────────┘
+                                    │
+                                eth0│192.168.9.1 (FX3110 LAN)
+                        ┌───────────┴────────────┐
+                        │  Raspberry Pi          │
+                        │  eth0: 192.168.9.14    │
+                        │  wlan0: 192.168.86.38  │
+                        └────────────────────────┘</code></pre>
+<h3 id="fx3110-configuration-details">FX3110 Configuration Details</h3>
+<ul>
+<li><strong>Ethernet WAN (Primary)</strong>:
+<ul>
+<li>Interface: Ethernet port</li>
+<li>IP Address: 192.168.86.48 (DHCP from Nest)</li>
+<li>Gateway: 192.168.86.1 (Google Nest)</li>
+<li>Status: Connected</li>
+</ul></li>
+<li><strong>Cellular WAN (Backup)</strong>:
+<ul>
+<li>Carrier: AT&amp;T (was Verizon Wireless earlier)</li>
+<li>Technology: 4G LTE</li>
+<li>Status: Ready (SIM active but not in use)</li>
+<li>RSRP: -92 dBm</li>
+<li>Public IP: Available when active</li>
+</ul></li>
+<li><strong>LAN Interface</strong>:
+<ul>
+<li>IP Range: 192.168.9.0/24</li>
+<li>Gateway IP: 192.168.9.1</li>
+<li>DHCP: Enabled</li>
+</ul></li>
+</ul>
+<hr />
+<h2 id="test-methodology">Test Methodology</h2>
+<h3 id="test-setup">Test Setup</h3>
+<ol type="1">
+<li><strong>Initial State</strong>: FX3110 operating on Ethernet WAN
+with successful internet connectivity</li>
+<li><strong>Blocking Method</strong>: Google Nest WiFi device-level
+internet blocking (simulates upstream ISP failure)</li>
+<li><strong>Monitoring</strong>: Real-time monitoring via custom Python
+script polling every 5 seconds</li>
+<li><strong>Test Duration</strong>: ~10 minutes of continuous monitoring
+while blocked</li>
+</ol>
+<h3 id="test-tools">Test Tools</h3>
+<ul>
+<li><strong>Monitoring Script</strong>: FX3110_Monitor.py (custom Python
+application)</li>
+<li><strong>Dashboard</strong>: FastAPI web dashboard showing real-time
+status</li>
+<li><strong>Command-line Tools</strong>: ping, curl, ip route, ARP table
+inspection</li>
+</ul>
+<hr />
+<h2 id="detailed-test-results">Detailed Test Results</h2>
+<h3 id="test-1-ping-connectivity-test">Test 1: Ping Connectivity
+Test</h3>
+<p><strong>Command</strong>: <code>ping -I eth0 -c 3 8.8.8.8</code></p>
+<pre><code>PING 8.8.8.8 (8.8.8.8) from 192.168.9.14 eth0: 56(84) bytes of data.
+From 192.168.86.1 icmp_seq=1 Destination Host Unreachable
+From 192.168.86.1 icmp_seq=2 Destination Host Unreachable
+From 192.168.86.1 icmp_seq=3 Destination Host Unreachable
+
+--- 8.8.8.8 ping statistics ---
+3 packets transmitted, 0 received, +3 errors, 100% packet loss, time 2003ms</code></pre>
+<p><strong>Result</strong>: ❌ FAILED - Internet unreachable through
+FX3110 Ethernet WAN <strong>Note</strong>: ICMP errors returned from
+192.168.86.1 (Google Nest), confirming blocking at upstream router</p>
+<hr />
+<h3 id="test-2-fx3110-gateway-reachability">Test 2: FX3110 Gateway
+Reachability</h3>
+<p><strong>Command</strong>:
+<code>ping -I eth0 -c 3 192.168.9.1</code></p>
+<pre><code>PING 192.168.9.1 (192.168.9.1) from 192.168.9.14 eth0: 56(84) bytes of data.
+64 bytes from 192.168.9.1: icmp_seq=1 ttl=64 time=0.923 ms
+64 bytes from 192.168.9.1: icmp_seq=2 ttl=64 time=0.819 ms
+64 bytes from 192.168.9.1: icmp_seq=3 ttl=64 time=0.774 ms
+
+--- 192.168.9.1 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2015ms
+rtt min/avg/max/mdev = 0.774/0.838/0.923/0.062 ms</code></pre>
+<p><strong>Result</strong>: ✅ PASSED - FX3110 LAN gateway is reachable
+<strong>Conclusion</strong>: FX3110 device itself is functioning
+normally</p>
+<hr />
+<h3 id="test-3-routing-table-analysis">Test 3: Routing Table
+Analysis</h3>
+<p><strong>Command</strong>: <code>ip route get 8.8.8.8</code></p>
+<pre><code>8.8.8.8 via 192.168.9.1 dev eth0 src 192.168.9.14 uid 1001
+    cache</code></pre>
+<p><strong>Result</strong>: ✅ Routing is correct - Traffic directed to
+FX3110 (192.168.9.1) via eth0 <strong>Conclusion</strong>: End device
+routing is properly configured</p>
+<hr />
+<h3 id="test-4-arp-table-inspection">Test 4: ARP Table Inspection</h3>
+<p><strong>Command</strong>: <code>ip neigh show dev eth0</code></p>
+<pre><code>8.8.8.8 FAILED
+192.168.9.1 lladdr 7a:b2:8b:0c:db:85 REACHABLE</code></pre>
+<p><strong>Result</strong>: - ✅ FX3110 gateway MAC address resolved
+successfully - ❌ 8.8.8.8 shows FAILED state (no ARP response, as
+expected for internet IP)</p>
+<p><strong>Conclusion</strong>: Layer 2 connectivity to FX3110 is
+working properly</p>
+<hr />
+<h3 id="test-5-fx3110-web-interface-status-check">Test 5: FX3110 Web
+Interface Status Check</h3>
+<p><strong>Command</strong>:
+<code>curl --interface eth0 -s http://192.168.9.1/ | grep -E 'id="(internetStatus|technology|networkName)"'</code></p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">div</span> <span class="er">class</span><span class="ot">=</span><span class="st">&quot;col textCol&quot;</span> <span class="er">id</span><span class="ot">=</span><span class="st">&quot;networkName&quot;</span><span class="dt">&gt;</span>AT<span class="er">&amp;</span>T<span class="dt">&lt;/</span><span class="kw">div</span><span class="dt">&gt;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">div</span> <span class="er">class</span><span class="ot">=</span><span class="st">&quot;col textCol&quot;</span> <span class="er">id</span><span class="ot">=</span><span class="st">&quot;technology&quot;</span><span class="dt">&gt;</span>Ethernet<span class="dt">&lt;/</span><span class="kw">div</span><span class="dt">&gt;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">div</span> <span class="er">class</span><span class="ot">=</span><span class="st">&quot;col textCol&quot;</span> <span class="er">id</span><span class="ot">=</span><span class="st">&quot;internetStatus&quot;</span><span class="dt">&gt;</span>Connected<span class="dt">&lt;/</span><span class="kw">div</span><span class="dt">&gt;</span></span></code></pre></div>
+<p><strong>Result</strong>: ❌ CRITICAL FINDING <strong>FX3110
+Status</strong>: Reports “Connected” on Ethernet WAN
+<strong>Technology</strong>: Shows “Ethernet” (not cellular)</p>
+<p><strong>Conclusion</strong>: The FX3110 incorrectly reports its WAN
+status as “Connected” despite having no internet connectivity.</p>
+<hr />
+<h3 id="test-6-fx3110-wan-ip-configuration">Test 6: FX3110 WAN IP
+Configuration</h3>
+<p><strong>Command</strong>:
+<code>curl --interface eth0 -s http://192.168.9.1/ | grep 'internetStatusIPAddress'</code></p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">div</span> <span class="er">class</span><span class="ot">=</span><span class="st">&quot;col textCol&quot;</span> <span class="er">id</span><span class="ot">=</span><span class="st">&quot;internetStatusIPAddress&quot;</span><span class="dt">&gt;</span>192.168.86.48<span class="dt">&lt;/</span><span class="kw">div</span><span class="dt">&gt;</span></span></code></pre></div>
+<p><strong>Result</strong>: ✅ FX3110 has valid DHCP lease from upstream
+router (192.168.86.48) <strong>Conclusion</strong>: DHCP and Layer 3
+addressing are functional</p>
+<hr />
+<h3 id="test-7-monitoring-log-analysis">Test 7: Monitoring Log
+Analysis</h3>
+<p><strong>Sample Log Entries During Blocking</strong> (TSV format):</p>
+<pre><code>Timestamp                 Success  Latency  WanStatus   WanSource  Tech      Carrier
+2026-01-12 10:15:18.784   False            Connected   Ethernet   Ethernet  AT&amp;T
+2026-01-12 10:15:30.233   False            Connected   Ethernet   Ethernet  AT&amp;T
+2026-01-12 10:15:41.567   False            Connected   Ethernet   Ethernet  AT&amp;T
+2026-01-12 10:16:05.340   False            Connected   Ethernet   Ethernet  AT&amp;T
+2026-01-12 10:17:12.954   False            Connected   Ethernet   Ethernet  AT&amp;T</code></pre>
+<p><strong>Observations</strong>: - Ping Success: False (100% failure
+rate) - Latency: Empty/null (no successful pings) - WanStatus:
+“Connected” (FX3110 thinks it’s connected) - WanSource: “Ethernet” (no
+failover to cellular) - Duration: 10+ minutes with no automatic
+failover</p>
+<p><strong>Result</strong>: ❌ CRITICAL - No failover occurred despite
+sustained internet connectivity loss</p>
+<hr />
+<h3 id="test-8-extended-failoverfailback-behavior-nest-block">Test 8:
+Extended Failover/Failback Behavior (Nest Block)</h3>
+<p><strong>Procedure</strong>: 1. Continued the test with Google Nest
+device-level blocking still enabled. 2. Observed no successful pings
+while the FX3110 remained “Connected” on Ethernet. 3. Physically
+disconnected the Ethernet cable to force a link-down condition. 4.
+FX3110 failed over to Cellular (expected behavior). 5. After ~1 minute
+on Cellular, reconnected the Ethernet cable while the Nest block was
+still active. 6. After a few minutes, the FX3110 switched back to
+Ethernet even though the internet remained blocked.</p>
+<p><strong>Result</strong>: ❌ FAILBACK OCCURRED WITHOUT INTERNET
+<strong>Conclusion</strong>: Failback logic appears to prefer Ethernet
+based on link/DHCP presence only, without verifying end-to-end internet
+reachability.</p>
+<hr />
+<h2 id="root-cause-analysis">Root Cause Analysis</h2>
+<h3 id="why-failover-did-not-occur">Why Failover Did Not Occur</h3>
+<p>The FX3110’s failover detection appears to only monitor:</p>
+<ol type="1">
+<li>✅ <strong>Physical Link Status</strong> (Layer 1)
+<ul>
+<li>Ethernet cable is connected</li>
+<li>Link light is active</li>
+<li>Physical layer is UP</li>
+</ul></li>
+<li>✅ <strong>DHCP Lease</strong> (Layer 3)
+<ul>
+<li>FX3110 successfully obtained IP address 192.168.86.48</li>
+<li>DHCP lease is valid and renewed</li>
+</ul></li>
+<li>✅ <strong>Local Gateway Reachability</strong> (Layer 3)
+<ul>
+<li>FX3110 can ping/ARP to 192.168.86.1 (Google Nest)</li>
+<li>Default gateway responds to ICMP</li>
+</ul></li>
+<li>❌ <strong>End-to-End Internet Connectivity</strong> (Layer 3/4)
+<ul>
+<li>FX3110 does NOT appear to test actual internet reachability</li>
+<li>No detection of DNS failures</li>
+<li>No detection of ping failures to public servers (google.com,
+kajeet.com, inseego.com)</li>
+</ul></li>
+</ol>
+<h3 id="traffic-flow-analysis">Traffic Flow Analysis</h3>
+<pre><code>End Device (RPi) → FX3110 (192.168.9.1) → Google Nest (192.168.86.1) → [BLOCKED] → Internet
+     ✅                    ✅                         ✅                    ❌
+   Sends packet      Receives &amp; routes         Blocks packet         Never reaches
+                    to upstream gateway                              destination</code></pre>
+<p><strong>The Problem</strong>: - Traffic is successfully routed TO the
+Google Nest router - Google Nest accepts the packets (no ICMP
+redirect/unreachable from 192.168.86.1) - Google Nest silently drops
+packets destined for internet - FX3110 never detects the failure because
+it only checks local connectivity</p>
+<hr />
+<h2 id="expected-vs-actual-behavior">Expected vs Actual Behavior</h2>
+<h3 id="expected-behavior">Expected Behavior</h3>
+<p>When an end device (POS terminal, Raspberry Pi, etc.) loses internet
+connectivity:</p>
+<ol type="1">
+<li>FX3110 should detect internet connectivity loss through active
+probing:
+<ul>
+<li>Periodic ping to public DNS servers (8.8.8.8, 1.1.1.1)</li>
+<li>Periodic HTTP/HTTPS connectivity tests to known endpoints</li>
+<li>DNS resolution tests</li>
+<li>Manufacturer-specific endpoints (inseego.com, kajeet.com, google.com
+as mentioned)</li>
+</ul></li>
+<li>After N consecutive failures (configurable threshold):
+<ul>
+<li>Mark Ethernet WAN as “Failed” or “No Internet”</li>
+<li>Initiate failover to Cellular WAN</li>
+<li>Update WAN status indicators</li>
+<li>Log failover event</li>
+</ul></li>
+<li>Periodic retry of Ethernet WAN:
+<ul>
+<li>Test Ethernet WAN connectivity every M minutes</li>
+<li>Failback to Ethernet when internet connectivity restored</li>
+<li>Prefer Ethernet over Cellular (cost savings)</li>
+</ul></li>
+</ol>
+<h3 id="actual-behavior">Actual Behavior</h3>
+<ol type="1">
+<li>FX3110 only monitors:
+<ul>
+<li>Physical link status (UP/DOWN)</li>
+<li>DHCP lease status (BOUND/EXPIRED)</li>
+<li>Local gateway ping (192.168.86.1 reachable)</li>
+</ul></li>
+<li>FX3110 status remains:
+<ul>
+<li>WAN Status: “Connected”</li>
+<li>Technology: “Ethernet”</li>
+<li>No failover initiated</li>
+</ul></li>
+<li>End devices:
+<ul>
+<li>Complete loss of internet connectivity</li>
+<li>No automatic recovery via cellular backup</li>
+<li>Requires manual intervention or physical cable disconnect</li>
+</ul></li>
+</ol>
+<hr />
+<h2 id="impact-assessment">Impact Assessment</h2>
+<h3 id="business-critical-scenarios">Business Critical Scenarios</h3>
+<p>This failure mode affects critical use cases:</p>
+<ol type="1">
+<li><strong>Retail POS Systems</strong>:
+<ul>
+<li>Cannot process credit card transactions</li>
+<li>Cannot access inventory systems</li>
+<li>Lost sales revenue</li>
+<li>Customer service degradation</li>
+</ul></li>
+<li><strong>Remote Monitoring Devices</strong>:
+<ul>
+<li>Alarm systems cannot send alerts</li>
+<li>Surveillance systems cannot upload footage</li>
+<li>IoT sensors lose cloud connectivity</li>
+</ul></li>
+<li><strong>Industrial Automation</strong>:
+<ul>
+<li>SCADA systems lose connectivity</li>
+<li>Remote diagnostics unavailable</li>
+<li>Production downtime</li>
+</ul></li>
+<li><strong>Emergency Services</strong>:
+<ul>
+<li>Backup communication systems fail</li>
+<li>Critical alerts not transmitted</li>
+</ul></li>
+</ol>
+<h3 id="risk-level-critical">Risk Level: <strong>CRITICAL</strong></h3>
+<p>The FX3110 is marketed as a failover/backup solution for enterprise
+use cases. The inability to detect and respond to upstream internet
+failures defeats the primary value proposition of the device.</p>
+<hr />
+<h2 id="test-environment-details">Test Environment Details</h2>
+<h3 id="hardware">Hardware</h3>
+<ul>
+<li><strong>Router</strong>: Inseego FX3110 5G Indoor Router</li>
+<li><strong>Firmware Version</strong>: [To be determined - need to check
+device]</li>
+<li><strong>SIM Card</strong>: Kajeet IoT SIM (ICCID:
+89148000012424836001)</li>
+<li><strong>Test Device</strong>: Raspberry Pi 4B
+<ul>
+<li>OS: Linux 6.6.99</li>
+<li>Ethernet: Connected to FX3110 LAN</li>
+<li>WiFi: Connected to Google Nest (for SSH access)</li>
+</ul></li>
+</ul>
+<h3 id="software">Software</h3>
+<ul>
+<li><strong>Monitoring Application</strong>: FX3110_Monitor.py v2.0.0
+<ul>
+<li>Language: Python 3.11</li>
+<li>Polling Interval: 5 seconds</li>
+<li>Logging Format: TSV</li>
+<li>Dashboard: FastAPI web interface</li>
+</ul></li>
+<li><strong>Upstream Router</strong>: Google Nest WiFi
+<ul>
+<li>Model: [Nest WiFi Router]</li>
+<li>Blocking Method: Device-level internet access control</li>
+</ul></li>
+</ul>
+<hr />
+<h2 id="appendix-a-network-configuration">Appendix A: Network
+Configuration</h2>
+<h3 id="raspberry-pi-network-interfaces">Raspberry Pi Network
+Interfaces</h3>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># eth0 - Connected to FX3110 LAN</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">inet</span> 192.168.9.14/24</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">gateway</span> 192.168.9.1</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="co"># wlan0 - Connected to Google Nest WiFi</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="ex">inet</span> 192.168.86.38/24</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="ex">gateway</span> 192.168.86.1</span></code></pre></div>
+<h3 id="fx3110-configuration">FX3110 Configuration</h3>
+<pre><code>WAN Interface: Ethernet
+WAN IP: 192.168.86.48
+WAN Gateway: 192.168.86.1
+WAN Status: Connected
+
+LAN Interface: Ethernet
+LAN IP: 192.168.9.1/24
+DHCP Server: Enabled
+DHCP Range: 192.168.9.2 - 192.168.9.254
+
+Cellular Interface: Ready (standby)
+Carrier: AT&amp;T
+Technology: 4G LTE
+RSRP: -92 dBm</code></pre>
+<hr />
+<h2 id="appendix-b-monitoring-script-configuration">Appendix B:
+Monitoring Script Configuration</h2>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># FX3110_Monitor.py Configuration</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>BIND_INTERFACE <span class="op">=</span> <span class="st">&quot;eth0&quot;</span>           <span class="co"># Force traffic through FX3110</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>DEST <span class="op">=</span> <span class="st">&quot;8.8.8.8&quot;</span>                  <span class="co"># Ping target (Google DNS)</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>DEVICE_BASE <span class="op">=</span> <span class="st">&quot;http://192.168.9.1&quot;</span>  <span class="co"># FX3110 web interface</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>MAIN_LOOP_INTERVAL <span class="op">=</span> <span class="dv">5</span>            <span class="co"># Poll every 5 seconds</span></span></code></pre></div>
+<hr />
+<h2 id="appendix-c-complete-test-log-sample">Appendix C: Complete Test
+Log Sample</h2>
+<pre class="tsv"><code>Timestamp                   SourceIP      ActiveInterface  DestIP   Success  Latency_ms  PublicIP         WanStatus   WanSource  SimStatus  Tech      Carrier
+2026-01-12 10:15:18.784    192.168.9.14  unknown          8.8.8.8  False                151.200.36.142   Connected   Ethernet   Ready      Ethernet  AT&amp;T
+2026-01-12 10:15:30.233    192.168.9.14  unknown          8.8.8.8  False                151.200.36.142   Connected   Ethernet   Ready      Ethernet  AT&amp;T
+2026-01-12 10:15:41.567    192.168.9.14  unknown          8.8.8.8  False                151.200.36.142   Connected   Ethernet   Ready      Ethernet  AT&amp;T
+2026-01-12 10:15:49.539    192.168.9.14  unknown          8.8.8.8  False                151.200.36.142   Connected   Ethernet   Ready      Ethernet  AT&amp;T
+2026-01-12 10:15:57.772    192.168.9.14  unknown          8.8.8.8  False                151.200.36.142   Connected   Ethernet   Ready      Ethernet  AT&amp;T</code></pre>
+<hr />
+<h2 id="revision-history">Revision History</h2>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 12%" />
+<col style="width: 16%" />
+<col style="width: 24%" />
+<col style="width: 46%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Version</th>
+<th>Date</th>
+<th>Author</th>
+<th>Changes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1.0</td>
+<td>2026-01-12</td>
+<td>Geoffrey Noakes</td>
+<td>Initial test report</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
