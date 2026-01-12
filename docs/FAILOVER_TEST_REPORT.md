@@ -217,6 +217,21 @@ Timestamp                 Success  Latency  WanStatus   WanSource  Tech      Car
 
 ---
 
+### Test 8: Extended Failover/Failback Behavior (Nest Block)
+
+**Procedure**:
+1. Continued the test with Google Nest device-level blocking still enabled.
+2. Observed no successful pings while the FX3110 remained "Connected" on Ethernet.
+3. Physically disconnected the Ethernet cable to force a link-down condition.
+4. FX3110 failed over to Cellular (expected behavior).
+5. After ~1 minute on Cellular, reconnected the Ethernet cable while the Nest block was still active.
+6. After a few minutes, the FX3110 switched back to Ethernet even though the internet remained blocked.
+
+**Result**: ❌ FAILBACK OCCURRED WITHOUT INTERNET
+**Conclusion**: Failback logic appears to prefer Ethernet based on link/DHCP presence only, without verifying end-to-end internet reachability.
+
+---
+
 ## Root Cause Analysis
 
 ### Why Failover Did Not Occur
@@ -426,4 +441,3 @@ Timestamp                   SourceIP      ActiveInterface  DestIP   Success  Lat
 | Version | Date       | Author           | Changes                          |
 |---------|------------|------------------|----------------------------------|
 | 1.0     | 2026-01-12 | Geoffrey Noakes  | Initial test report              |
-
