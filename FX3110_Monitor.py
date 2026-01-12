@@ -21,16 +21,18 @@ PUBLIC_IP_URLS = [
     "https://api.ipify.org",
     "https://checkip.amazonaws.com",
 ]
-PUBLIC_IP_REFRESH_SECONDS = 60
+# Check public IP every cycle to ensure all IPs are synchronized
+PUBLIC_IP_REFRESH_SECONDS = 0  # 0 = check every cycle
 
 # --- Local failover device endpoints (based on your curl output) ---
-DEVICE_BASE = "http://192.168.1.1"
+DEVICE_BASE = os.getenv("DEVICE_BASE", "http://192.168.1.1")
 STATUS_PAGE_URL = f"{DEVICE_BASE}/"                         # HTML page with IDs like simStatus, internetStatus, etc.
 DEVICES_REFRESH_URL = f"{DEVICE_BASE}/apps_home/devicesrefresh/"  # JSON (wifiDevicesCount, connectedDevicesList)
 
 # Polling intervals
-STATUS_REFRESH_SECONDS = 5
-DEVICES_REFRESH_SECONDS = 10
+MAIN_LOOP_INTERVAL = 5  # Main loop runs every 5 seconds
+STATUS_REFRESH_SECONDS = 0  # Check FX3110 status every cycle
+DEVICES_REFRESH_SECONDS = 0  # Check connected devices every cycle
 
 # Keep device-name list compact so logs stay readable
 MAX_DEVICE_NAMES = 5
@@ -234,10 +236,16 @@ while True:
     success = proc.returncode == 0
     latency = get_latency_ms(proc.stdout)
 
-    # Determine WAN source based on cellular metrics
-    tech = status.get('Tech', '')
-    rsrp = status.get('RSRP', '')
-    wan_source = "Cellular" if (tech and rsrp) else "Ethernet" if status.get('WanStatus') == 'Connected' else "Unknown"
+    # Determine WAN source based on Technology field
+    # When FX3110 uses Ethernet WAN, technology field shows "Ethernet"
+    # When using cellular WAN, technology shows "4G LTE", "5G", etc.
+    tech = status.get('Tech', '').strip()
+    if tech.lower() == 'ethernet':
+        wan_source = "Ethernet"
+    elif tech:  # Any other non-empty tech value means cellular (4G LTE, 5G, etc.)
+        wan_source = "Cellular"
+    else:
+        wan_source = "Unknown"
 
     print(
         f"{ts}\t{src_ip}\t{active_interface}\t{DEST}\t{success}\t{latency}\t{last_public_ip}\t"
@@ -250,4 +258,4 @@ while True:
         flush=True,
     )
 
-    time.sleep(1)
+    time.sleep(MAIN_LOOP_INTERVAL)

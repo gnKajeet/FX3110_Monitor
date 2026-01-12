@@ -44,7 +44,7 @@ class LogParser:
                 "active_interface": row.get("ActiveInterface", ""),
                 "dest_ip": row.get("DestIP", ""),
                 "success": row.get("Success", "").lower() == "true",
-                "latency_ms": int(row.get("Latency_ms", "0") or "0"),
+                "latency_ms": int(row.get("Latency_ms") or "0") if row.get("Latency_ms") else None,
                 "public_ip": row.get("PublicIP", ""),
                 "wan_status": row.get("WanStatus", ""),
                 "wan_source": row.get("WanSource", ""),
@@ -89,8 +89,8 @@ class LogParser:
 
     def get_current_status(self) -> Dict:
         """Get the most recent status entry."""
-        if not self.cache:
-            self.reload_logs()
+        # Always reload to get latest data
+        self.reload_logs()
 
         if not self.cache:
             raise HTTPException(status_code=404, detail="No log data available")
@@ -99,8 +99,8 @@ class LogParser:
 
     def get_recent(self, count: int = 100) -> List[Dict]:
         """Get recent log entries."""
-        if not self.cache:
-            self.reload_logs()
+        # Always reload to get latest data
+        self.reload_logs()
 
         return list(self.cache)[-count:]
 
