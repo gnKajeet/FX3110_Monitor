@@ -10,11 +10,18 @@ services:
     volumes:
       - ./logs:/logs
       - /etc/localtime:/etc/localtime:ro  # Sync container time with host
+      # - /home/pi/.ssh:/root/.ssh:ro  # RUTM50 SSH key (adjust host path)
     environment:
       - PYTHONUNBUFFERED=1  # Ensure logs are written immediately
       - BIND_INTERFACE=eth0  # Force traffic through ethernet
       - DEST=8.8.8.8
+      - DEVICE_TYPE=fx3110
       - DEVICE_BASE=http://192.168.1.1
+      # RUTM50 (SSH) settings when DEVICE_TYPE=rutm50
+      # - RUTM50_SSH_HOST=192.168.1.1
+      # - RUTM50_SSH_USER=root
+      # - RUTM50_SSH_PORT=22
+      # - RUTM50_SSH_KEY=/root/.ssh/id_rsa
     cap_add:
       - NET_RAW  # Required for ping
       - NET_ADMIN  # Required for network interface binding

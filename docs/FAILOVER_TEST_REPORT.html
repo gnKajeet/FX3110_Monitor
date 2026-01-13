@@ -101,11 +101,11 @@ by</strong>: Geoffrey Noakes</p>
 <hr />
 <h2 id="executive-summary">Executive Summary</h2>
 <p>The Inseego FX3110 fails to automatically failover from Ethernet WAN
-to Cellular WAN when upstream internet connectivity is lost, despite the
+to Cellular WAN when upstream internet connectivity is lost while the
 Ethernet link remaining physically active. This creates a critical
-failure scenario where end devices (POS terminals, Raspberry Pi, etc.)
-lose internet connectivity even though the FX3110 has a functional
-cellular backup connection available.</p>
+failure scenario where end devices (POS terminals, WiFi AP, Raspberry
+Pi, etc.) lose internet connectivity even though the FX3110 has a
+functional cellular backup connection available.</p>
 <p><strong>Expected Behavior</strong>: When end devices cannot reach the
 internet through Ethernet WAN, the FX3110 should detect the failure and
 switch to Cellular WAN.</p>
@@ -193,7 +193,8 @@ inspection</li>
 <h2 id="detailed-test-results">Detailed Test Results</h2>
 <h3 id="test-1-ping-connectivity-test">Test 1: Ping Connectivity
 Test</h3>
-<p><strong>Command</strong>: <code>ping -I eth0 -c 3 8.8.8.8</code></p>
+<p><strong>Command from RPI connected to LAN port of Inseego</strong>:
+<code>ping -I eth0 -c 3 8.8.8.8</code></p>
 <pre><code>PING 8.8.8.8 (8.8.8.8) from 192.168.9.14 eth0: 56(84) bytes of data.
 From 192.168.86.1 icmp_seq=1 Destination Host Unreachable
 From 192.168.86.1 icmp_seq=2 Destination Host Unreachable
@@ -207,7 +208,7 @@ FX3110 Ethernet WAN <strong>Note</strong>: ICMP errors returned from
 <hr />
 <h3 id="test-2-fx3110-gateway-reachability">Test 2: FX3110 Gateway
 Reachability</h3>
-<p><strong>Command</strong>:
+<p><strong>Command from RPI connected to LAN port of Inseego</strong>:
 <code>ping -I eth0 -c 3 192.168.9.1</code></p>
 <pre><code>PING 192.168.9.1 (192.168.9.1) from 192.168.9.14 eth0: 56(84) bytes of data.
 64 bytes from 192.168.9.1: icmp_seq=1 ttl=64 time=0.923 ms
@@ -223,7 +224,8 @@ normally</p>
 <hr />
 <h3 id="test-3-routing-table-analysis">Test 3: Routing Table
 Analysis</h3>
-<p><strong>Command</strong>: <code>ip route get 8.8.8.8</code></p>
+<p><strong>Command from RPI connected to LAN port of Inseego</strong>:
+<code>ip route get 8.8.8.8</code></p>
 <pre><code>8.8.8.8 via 192.168.9.1 dev eth0 src 192.168.9.14 uid 1001
     cache</code></pre>
 <p><strong>Result</strong>: ✅ Routing is correct - Traffic directed to
@@ -231,7 +233,8 @@ FX3110 (192.168.9.1) via eth0 <strong>Conclusion</strong>: End device
 routing is properly configured</p>
 <hr />
 <h3 id="test-4-arp-table-inspection">Test 4: ARP Table Inspection</h3>
-<p><strong>Command</strong>: <code>ip neigh show dev eth0</code></p>
+<p><strong>Command from RPI connected to LAN port of Inseego</strong>*:
+<code>ip neigh show dev eth0</code></p>
 <pre><code>8.8.8.8 FAILED
 192.168.9.1 lladdr 7a:b2:8b:0c:db:85 REACHABLE</code></pre>
 <p><strong>Result</strong>: - ✅ FX3110 gateway MAC address resolved
@@ -242,7 +245,7 @@ working properly</p>
 <hr />
 <h3 id="test-5-fx3110-web-interface-status-check">Test 5: FX3110 Web
 Interface Status Check</h3>
-<p><strong>Command</strong>:
+<p><strong>Command from RPI connected to LAN port of Inseego</strong>:
 <code>curl --interface eth0 -s http://192.168.9.1/ | grep -E 'id="(internetStatus|technology|networkName)"'</code></p>
 <div class="sourceCode" id="cb6"><pre
 class="sourceCode html"><code class="sourceCode html"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">div</span> <span class="er">class</span><span class="ot">=</span><span class="st">&quot;col textCol&quot;</span> <span class="er">id</span><span class="ot">=</span><span class="st">&quot;networkName&quot;</span><span class="dt">&gt;</span>AT<span class="er">&amp;</span>T<span class="dt">&lt;/</span><span class="kw">div</span><span class="dt">&gt;</span></span>
@@ -256,7 +259,7 @@ status as “Connected” despite having no internet connectivity.</p>
 <hr />
 <h3 id="test-6-fx3110-wan-ip-configuration">Test 6: FX3110 WAN IP
 Configuration</h3>
-<p><strong>Command</strong>:
+<p><strong>Command from RPI connected to LAN port of Inseego</strong>:
 <code>curl --interface eth0 -s http://192.168.9.1/ | grep 'internetStatusIPAddress'</code></p>
 <div class="sourceCode" id="cb7"><pre
 class="sourceCode html"><code class="sourceCode html"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">div</span> <span class="er">class</span><span class="ot">=</span><span class="st">&quot;col textCol&quot;</span> <span class="er">id</span><span class="ot">=</span><span class="st">&quot;internetStatusIPAddress&quot;</span><span class="dt">&gt;</span>192.168.86.48<span class="dt">&lt;/</span><span class="kw">div</span><span class="dt">&gt;</span></span></code></pre></div>
@@ -423,8 +426,9 @@ failures defeats the primary value proposition of the device.</p>
 <h3 id="hardware">Hardware</h3>
 <ul>
 <li><strong>Router</strong>: Inseego FX3110 5G Indoor Router</li>
-<li><strong>Firmware Version</strong>: [To be determined - need to check
-device]</li>
+<li><strong>Firmware Version</strong>: 2.649, THN-3.37 1 [2025-10-13
+18:36:41],<br />
+</li>
 <li><strong>SIM Card</strong>: Kajeet IoT SIM (ICCID:
 89148000012424836001)</li>
 <li><strong>Test Device</strong>: Raspberry Pi 4B
@@ -445,7 +449,7 @@ device]</li>
 </ul></li>
 <li><strong>Upstream Router</strong>: Google Nest WiFi
 <ul>
-<li>Model: [Nest WiFi Router]</li>
+<li>Model: G6ZUC, SW 3.76.479819</li>
 <li>Blocking Method: Device-level internet access control</li>
 </ul></li>
 </ul>

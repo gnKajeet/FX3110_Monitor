@@ -1,12 +1,12 @@
 FX3110 Monitor
 ==============
 
-Lightweight status and reachability logger for the Inseego FX3110 cellular modem, designed for Raspberry Pi deployment with Docker.
+Lightweight status and reachability logger for the Inseego FX3110 or Teltonika RUTM50, designed for Raspberry Pi deployment with Docker.
 
 ## What it does
 
 - **Connectivity monitoring**: Pings a target IP and logs success/latency
-- **Device status**: Pulls WAN/SIM/RF status from the FX3110 web interface
+- **Device status**: Pulls WAN/SIM/RF status from the FX3110 web interface or RUTM50 via SSH commands
 - **Signal metrics**: Tracks RSRP, RSRQ, SNR, band, and technology (4G/5G)
 - **Connected devices**: Monitors device count and names
 - **Public IP logging**: Periodically records public IP address
@@ -36,7 +36,7 @@ sudo usermod -aG docker $USER
 git clone git@github.com:gnKajeet/FX3110_Monitor.git
 cd FX3110_Monitor
 cp .env.example .env
-nano .env  # Set BIND_INTERFACE=eth0
+nano .env  # Set BIND_INTERFACE=eth0 and DEVICE_TYPE
 ```
 
 ### 3. Start Monitoring
@@ -69,10 +69,12 @@ python3 FX3110_Monitor.py > fx3110_log.tsv
 python FX3110_Monitor.py > fx3110_log.tsv
 ```
 
-**Configuration**: Edit constants at the top of `FX3110_Monitor.py`:
-- `BIND_INTERFACE`: Network interface for FX3110 traffic (e.g., "eth0")
+**Configuration**: Edit environment variables in `.env` (or export them):
+- `DEVICE_TYPE`: `fx3110` or `rutm50`
+- `BIND_INTERFACE`: Network interface for device traffic (e.g., "eth0")
 - `DEST`: Ping target (default: 8.8.8.8)
-- `DEVICE_BASE`: FX3110 IP address (default: http://192.168.1.1)
+- `DEVICE_BASE`: FX3110 IP address (used for `fx3110`)
+- `RUTM50_SSH_HOST`, `RUTM50_SSH_USER`, `RUTM50_SSH_KEY`: SSH access (used for `rutm50`)
 - Refresh intervals and display limits
 
 ## Output Format
@@ -84,6 +86,18 @@ Timestamp  SourceIP  DestIP  Success  Latency_ms  PublicIP  WanStatus  SimStatus
 ```
 
 Import into Excel, pandas, or any TSV-compatible tool for analysis.
+
+## RUTM50 Setup (SSH)
+
+Set `DEVICE_TYPE=rutm50` and configure SSH env vars in `.env`:
+- `RUTM50_SSH_HOST`, `RUTM50_SSH_USER`, `RUTM50_SSH_KEY` (or `RUTM50_SSH_PASSWORD` with sshpass)
+- Optional command overrides: `RUTM50_CMD_SIGNAL`, `RUTM50_CMD_OPERATOR`, `RUTM50_CMD_TECH`, `RUTM50_CMD_WAN`, `RUTM50_CMD_APN`
+- Additional telemetry commands (stored as raw text in the log): `RUTM50_CMD_CONNSTATE`, `RUTM50_CMD_PSSTATE`, `RUTM50_CMD_NETSTATE`, `RUTM50_CMD_CELLID`, `RUTM50_CMD_OPERNUM`, `RUTM50_CMD_NETWORK`, `RUTM50_CMD_SERVING`, `RUTM50_CMD_NEIGHBOUR`, `RUTM50_CMD_VOLTE`, `RUTM50_CMD_BAND`
+- Modem info JSON (parsed into fields): `RUTM50_CMD_INFO` (default `gsmctl --info`)
+
+The RUTM50 collector runs SSH commands like `gsmctl -q` and `ubus call network.interface.wan status`.
+If your firmware uses different commands, override them via the env vars above.
+For Docker, mount your SSH key into the container (see the commented volume in `docker-compose.yml`).
 
 ## Web Dashboard
 
@@ -118,7 +132,9 @@ Access the real-time monitoring dashboard at `http://<raspberry-pi-ip>:8080/`
 
 - **Hardware**: Raspberry Pi 4+ (or any Linux system with dual network interfaces)
 - **Software**: Docker and docker-compose (or Python 3.8+ for manual deployment)
-- **Network**: Access to FX3110 management UI (default: http://192.168.1.1)
+- **Network**:
+  - FX3110: Access to management UI (default: http://192.168.1.1)
+  - RUTM50: SSH access to the router (key-based recommended)
 
 ## License
 

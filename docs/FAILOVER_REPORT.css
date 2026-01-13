@@ -1,0 +1,17 @@
+:root {
+  --page-max: 1100px;
+  --page-pad: 24px;
+}
+
+body {
+  max-width: var(--page-max);
+  margin: 32px auto;
+  padding: 0 var(--page-pad);
+  line-height: 1.5;
+}
+
+@media (min-width: 1400px) {
+  :root {
+    --page-max: 1280px;
+  }
+}
