@@ -1,0 +1,133 @@
+# FX3110 Monitor - Project Context
+
+## Project Overview
+This is a lightweight status and reachability logger for cellular modems (Inseego FX3110 or Teltonika RUTM50) designed for Raspberry Pi deployment with Docker. It monitors connectivity, device status, signal metrics, connected devices, and public IP logging.
+
+## Deployment Information
+- **Deployment Location**: Raspberry Pi on local network
+- **SSH Access**: `inseego@192.168.86.38`
+- **Container Runtime**: Docker (runs in container on RPi)
+- **Router Type**: Either Teltonika RUTM50 or Inseego FX3110
+- **Source Control**: Work GitHub repository, mirrored locally
+
+## Network Architecture
+The Raspberry Pi uses a dual network interface configuration:
+- **Ethernet (eth0)**: Connected to cellular modem at 192.168.1.1
+  - Used for all modem monitoring traffic
+  - Isolated from internet routing
+- **WiFi (wlan0)**: Connected to home network at 192.168.86.38
+  - Used for SSH access from development machine
+  - Used for internet connectivity and future remote data transmission
+- **Development Machine**: Connects to RPi via WiFi at 192.168.86.38
+
+## Technology Stack
+- **Language**: Python 3.8+
+- **Container**: Docker with docker-compose
+- **Web Framework**: Flask-based REST API
+- **Data Storage**: Tab-separated value (TSV) log files
+- **Interface Binding**: Uses `BIND_INTERFACE=eth0` for modem traffic routing
+
+## Key Components (Modular Architecture)
+1. **monitor.py**: Main entry point with factory pattern (NEW - replaces FX3110_Monitor.py)
+2. **collectors/**: Modular data collection system
+   - **base.py**: Abstract base classes (CellularCollector, NetworkCollector)
+   - **inseego.py**: InseegoCollector for FX3110/FX2000 via HTTP scraping
+   - **teltonika.py**: TeltonikaCollector for RUTM50/RUTX via SSH/gsmctl
+   - **rpi_network.py**: RPiNetworkCollector for ping/routing/public IP
+3. **api/**: REST API and dashboard (FastAPI)
+   - **main.py**: API service with TSV parser
+   - **templates/dashboard.html**: Dynamic dashboard (updates title based on device)
+4. **docker-compose.yml**: Multi-container orchestration (monitor + api)
+5. **Dockerfile**: Monitor container build
+6. **FX3110_Monitor.py**: Legacy monolithic script (DEPRECATED - kept for compatibility)
+
+## Monitoring Capabilities
+- Connectivity monitoring (ping latency to configurable target)
+- Device status (WAN/SIM/RF status)
+- Signal metrics (RSRP, RSRQ, SNR, band, technology)
+- Connected devices (count and names)
+- Public IP logging
+- Network isolation (forces modem traffic through ethernet)
+
+## Data Collection Methods
+- **FX3110**: Web scraping from device UI at http://192.168.1.1
+  - Uses HTML element ID extraction for metrics
+  - Parses JSON endpoints for device info
+- **RUTM50**: SSH commands using gsmctl, ubus, and mwan3 utilities
+  - **Signal metrics**: `gsmctl -E` (JSON) - reads from cache.rsrp_value, cache.rsrq_value, cache.sinr_value
+  - **WAN status**: `mwan3 status` (failover-aware) or `ubus call network.interface.wan status` (fallback)
+  - **Carrier info**: `gsmctl -o` (operator), `gsmctl -t` (technology), `gsmctl -b` (band)
+  - **APN**: `uci get network.mob1s1a1.apn`
+  - **ICCID**: `gsmctl -J`
+  - **SIM status**: `gsmctl -z`
+
+### Critical Bug Fix (RUTM50)
+**Issue**: RSRP, RSRQ, SNR showing incorrect values (TAC=5382, PCID=493 instead of signal metrics)
+**Root Cause**: Original code read from cell_info fields instead of cache object in gsmctl -E JSON
+**Fix Location**: collectors/teltonika.py:87-105
+**Solution**: Read from cache.rsrp_value, cache.rsrq_value, cache.sinr_value, cache.rssi_value
+
+## Web Dashboard & API
+- **Dashboard URL**: http://192.168.86.38:8080/
+- **Features**: Real-time status, signal visualization, anomaly detection, dark mode
+- **API Endpoints**:
+  - `GET /api/status` - Current modem status
+  - `GET /api/stats` - Statistical summary
+  - `GET /api/recent?count=100` - Recent log entries
+  - `GET /api/changes` - Configuration changes
+  - `GET /api/anomalies` - Signal/latency anomalies
+  - `GET /api/health` - Service health check
+
+## Configuration
+Environment variables are set in `.env` file:
+- `DEVICE_TYPE`: fx3110 or rutm50
+- `BIND_INTERFACE`: Network interface (eth0 for RPi)
+- `DEST`: Ping target (default: 8.8.8.8)
+- `DEVICE_BASE`: FX3110 IP address (for fx3110 type)
+- `RUTM50_SSH_*`: SSH connection settings (for rutm50 type)
+- Refresh intervals and display limits
+
+## Output Format
+Tab-separated values (TSV) stored in `./logs/fx3110_log.tsv` with headers:
+- Timestamp, SourceIP, DestIP, Success, Latency_ms, PublicIP
+- WanStatus, SimStatus, Tech, Band, RSRP, RSRQ, SNR
+- ConnectedDevices, DeviceNames, and more
+
+## Docker Configuration
+- Runs with `network_mode: host` for direct interface access
+- Requires `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities
+- Restart policy: `unless-stopped`
+- Logs mounted to `./logs/` directory
+
+## Common Operations
+- **Start monitoring**: `docker compose up -d`
+- **View logs**: `tail -f logs/fx3110_log.tsv`
+- **Container logs**: `docker compose logs -f fx3110-monitor`
+- **Restart service**: `docker compose restart`
+- **Update code**: `git pull && docker compose up -d --build`
+
+## Development Workflow
+- Code is mirrored from work GitHub
+- Test locally on development machine
+- Deploy to RPi via SSH at inseego@192.168.86.38
+- Container automatically restarts on failure
+
+## Security Considerations
+- Container runs as non-root user (UID 1000)
+- Minimal capabilities (NET_RAW, NET_ADMIN only)
+- Modem on isolated ethernet subnet
+- SSH key-based authentication recommended
+- API service only exposed on WiFi interface
+
+## Future Enhancements
+- Time-series database integration (InfluxDB)
+- Advanced analytics dashboard (Grafana)
+- Email/SMS alerting on anomalies
+- Cellular data usage tracking
+- Historical trend analysis
+
+## Important Notes
+- Never use `-uall` flag with git status (memory issues on large repos)
+- Log rotation should be configured to prevent disk space issues
+- Ensure proper routing: default route via wlan0, 192.168.1.0/24 via eth0
+- When deploying changes, rebuild container: `docker compose build --no-cache`

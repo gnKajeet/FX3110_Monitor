@@ -118,35 +118,69 @@ class TeltonikaCollector(CellularCollector):
         }
 
     def get_connection_status(self) -> Dict:
-        """Get WAN connection status with improved failover detection."""
+        """Get WAN connection status using `mwan3 status` when available.
+
+        The method prefers `mwan3 status` output (which is failover-aware). If
+        `mwan3` is unavailable or parsing fails, it falls back to the previous
+        `ubus`-based implementation.
+        """
         try:
-            wan_json = self._ssh_exec("ubus call network.interface.wan status")
-            wan_data = json.loads(wan_json)
-            wan_up = wan_data.get("up", False)
-            wan_device = wan_data.get("device", "")
-
-            # Determine WAN source by checking both device name and route
+            # Prefer mwan3 for a failover-aware status
+            mwan_text = self._ssh_exec_safe("mwan3 status")
+            wan_up = False
+            wan_device = ""
             wan_source = ""
-            if wan_device:
-                if self.cell_iface and self.cell_iface in wan_device:
-                    wan_source = "Cellular"
-                else:
-                    # Check routing table to verify actual path
-                    # If WAN is ethernet but cellular is active, it's using cellular failover
-                    try:
-                        route_check = self._ssh_exec(f"ip route get 8.8.8.8 | grep -o 'dev [^ ]*'")
-                        if route_check and self.cell_iface in route_check:
-                            wan_source = "Cellular"
-                        else:
-                            wan_source = "Ethernet"
-                    except Exception:
-                        wan_source = "Ethernet"
 
-            # Get IP address
+            if mwan_text:
+                iface_status = {}
+
+                # Match lines like:
+                #  interface wan is online 00h:21m:09s, uptime 01h:32m:23s and tracking is active
+                #  interface mob1s1a1 is online 01h:31m:46s, uptime 01h:32m:02s and tracking is active
+                for m in re.finditer(r"^\s*interface\s+(?P<iface>\S+)\s+is\s+(?P<status>\w+)", mwan_text, re.IGNORECASE | re.MULTILINE):
+                    iface_status[m.group('iface')] = m.group('status').lower()
+
+                # Fallback: look for other common patterns if above didn't match
+                if not iface_status:
+                    for m in re.finditer(r"(?P<iface>\b[\w-]+\b).{0,40}\b(online|offline|up|down)\b", mwan_text, re.IGNORECASE):
+                        iface = m.group('iface')
+                        status = m.group(2).lower()
+                        iface_status.setdefault(iface, status)
+
+                # Pick the online interface, preferring the configured cellular iface
+                if iface_status:
+                    if self.cell_iface:
+                        for k, v in iface_status.items():
+                            if self.cell_iface in k and v in ('online', 'up'):
+                                wan_up = True
+                                wan_device = k
+                                break
+
+                    if not wan_device:
+                        for k, v in iface_status.items():
+                            if v in ('online', 'up'):
+                                wan_up = True
+                                wan_device = k
+                                break
+
+                    if wan_device:
+                        if self.cell_iface and self.cell_iface in wan_device:
+                            wan_source = "Cellular"
+                        elif 'eth' in wan_device.lower() or wan_device.lower().startswith('lan'):
+                            wan_source = "Ethernet"
+                        else:
+                            wan_source = "Cellular" if 'wan' in wan_device.lower() else "Ethernet"
+
+            # If we still need an IP address, try ubus (ubus gives structured IP info)
             device_ipv4 = ""
-            addrs = wan_data.get("ipv4-address", [])
-            if addrs:
-                device_ipv4 = addrs[0].get("address", "")
+            try:
+                wan_json = self._ssh_exec("ubus call network.interface.wan status")
+                wan_data = json.loads(wan_json)
+                addrs = wan_data.get("ipv4-address", [])
+                if addrs:
+                    device_ipv4 = addrs[0].get("address", "")
+            except Exception:
+                device_ipv4 = ""
 
             return {
                 "wan_status": "Connected" if wan_up else "Disconnected",
@@ -154,7 +188,42 @@ class TeltonikaCollector(CellularCollector):
                 "device_ipv4": device_ipv4,
             }
         except Exception:
-            return {"wan_status": "", "wan_source": "", "device_ipv4": ""}
+            # Fallback to the previous ubus/route-based logic
+            try:
+                wan_json = self._ssh_exec("ubus call network.interface.wan status")
+                wan_data = json.loads(wan_json)
+                wan_up = wan_data.get("up", False)
+                wan_device = wan_data.get("device", "")
+
+                # Determine WAN source by checking both device name and route
+                wan_source = ""
+                if wan_device:
+                    if self.cell_iface and self.cell_iface in wan_device:
+                        wan_source = "Cellular"
+                    else:
+                        # Check routing table to verify actual path
+                        try:
+                            route_check = self._ssh_exec(f"ip route get 8.8.8.8 | grep -o 'dev [^ ]*'")
+                            if route_check and self.cell_iface in route_check:
+                                wan_source = "Cellular"
+                            else:
+                                wan_source = "Ethernet"
+                        except Exception:
+                            wan_source = "Ethernet"
+
+                # Get IP address
+                device_ipv4 = ""
+                addrs = wan_data.get("ipv4-address", [])
+                if addrs:
+                    device_ipv4 = addrs[0].get("address", "")
+
+                return {
+                    "wan_status": "Connected" if wan_up else "Disconnected",
+                    "wan_source": wan_source,
+                    "device_ipv4": device_ipv4,
+                }
+            except Exception:
+                return {"wan_status": "", "wan_source": "", "device_ipv4": ""}
 
     def get_sim_info(self) -> Dict:
         """Get SIM card information."""
@@ -169,23 +238,29 @@ class TeltonikaCollector(CellularCollector):
         }
 
     def get_device_info(self) -> Dict:
-        """Get device/modem information from gsmctl -E."""
+        """Get device/modem information."""
         try:
+            # Get modem info from gsmctl -E
             info_json = self._ssh_exec("gsmctl -E")
             data = json.loads(info_json)
             cache = data.get("cache", {})
 
+            # Use router model as primary, include modem model in manufacturer field
+            router_model = "RUTM50"
+            modem_model = data.get("model", "")
+            modem_manufacturer = data.get("manuf", "")
+
             return {
-                "model": data.get("model", ""),
-                "manufacturer": data.get("manuf", ""),
+                "model": router_model,
+                "manufacturer": f"Teltonika/{modem_manufacturer}" if modem_manufacturer else "Teltonika",
                 "firmware": cache.get("firmware", ""),
                 "imei": cache.get("imei", ""),
                 "serial": cache.get("serial_num", ""),
             }
         except Exception:
             return {
-                "model": "",
-                "manufacturer": "",
+                "model": "RUTM50",
+                "manufacturer": "Teltonika",
                 "firmware": "",
                 "imei": "",
                 "serial": "",
