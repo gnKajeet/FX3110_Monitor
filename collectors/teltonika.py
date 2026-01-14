@@ -84,37 +84,75 @@ class TeltonikaCollector(CellularCollector):
         except Exception:
             return ""
 
+    def _fetch_gsmctl_info(self) -> dict:
+        """Fetch modem info JSON, trying multiple gsmctl commands."""
+        for cmd in ("gsmctl -E", "gsmctl --info"):
+            text = self._ssh_exec_safe(cmd)
+            if not text:
+                continue
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                continue
+        return {}
+
+    def _parse_gsmctl_q(self, text: str) -> Dict:
+        """Parse gsmctl -q text output for signal metrics."""
+        def grab(label: str) -> Optional[int]:
+            m = re.search(rf"{re.escape(label)}\s*:\s*(-?\d+)", text, re.IGNORECASE)
+            return int(m.group(1)) if m else None
+
+        return {
+            "rsrp": grab("RSRP"),
+            "rsrq": grab("RSRQ"),
+            "snr": grab("SINR") or grab("SNR"),
+            "rssi": grab("RSSI"),
+        }
+
     def get_signal_metrics(self) -> Dict:
         """
         Get cellular signal quality metrics from gsmctl -E (JSON format).
 
         This is the FIXED version that correctly reads from cache.rsrp_value, etc.
         """
-        try:
-            info_json = self._ssh_exec("gsmctl -E")
-            data = json.loads(info_json)
-            cache = data.get("cache", {})
-
+        data = self._fetch_gsmctl_info()
+        cache = data.get("cache", {}) if isinstance(data, dict) else {}
+        if cache:
             return {
-                "rsrp": cache.get("rsrp_value"),  # Correct: from cache
-                "rsrq": cache.get("rsrq_value"),  # Correct: from cache
-                "snr": cache.get("sinr_value"),   # Correct: from cache (SINR)
-                "rssi": cache.get("rssi_value"),  # Correct: from cache
+                "rsrp": cache.get("rsrp_value"),
+                "rsrq": cache.get("rsrq_value"),
+                "snr": cache.get("sinr_value"),
+                "rssi": cache.get("rssi_value"),
             }
-        except Exception:
-            return {"rsrp": None, "rsrq": None, "snr": None, "rssi": None}
+
+        text = self._ssh_exec_safe("gsmctl -q")
+        if text:
+            return self._parse_gsmctl_q(text)
+
+        return {"rsrp": None, "rsrq": None, "snr": None, "rssi": None}
 
     def get_network_info(self) -> Dict:
         """Get network and carrier information."""
         carrier = self._ssh_exec_safe("gsmctl -o")
         tech = self._ssh_exec_safe("gsmctl -t")
         band = self._ssh_exec_safe("gsmctl -b")
+        bandwidth = ""
+
+        if not (carrier.strip() or tech.strip() or band.strip()):
+            data = self._fetch_gsmctl_info()
+            cache = data.get("cache", {}) if isinstance(data, dict) else {}
+            carrier = carrier or cache.get("provider_name") or cache.get("operator") or ""
+            tech = tech or cache.get("net_mode_str") or ""
+            band = band or cache.get("band_str") or ""
+            ca_info = cache.get("ca_info") or []
+            if ca_info:
+                bandwidth = str(ca_info[0].get("bandwidth", "")) or ""
 
         return {
             "carrier": carrier.strip(),
             "technology": tech.strip(),
             "band": band.strip(),
-            "bandwidth": "",  # Not readily available via gsmctl
+            "bandwidth": bandwidth,
         }
 
     def get_connection_status(self) -> Dict:
@@ -185,6 +223,20 @@ class TeltonikaCollector(CellularCollector):
                     device_ipv4 = addrs[0].get("address", "")
             except Exception:
                 device_ipv4 = ""
+
+            # Fallback: check cellular interface if WAN is down
+            if not wan_up:
+                try:
+                    cell_json = self._ssh_exec(f"ubus call network.interface.{self.cell_iface} status")
+                    cell_data = json.loads(cell_json)
+                    cell_addrs = cell_data.get("ipv4-address", [])
+                    if cell_data.get("up") or cell_addrs:
+                        wan_up = True
+                        wan_source = "Cellular"
+                        if cell_addrs:
+                            device_ipv4 = cell_addrs[0].get("address", device_ipv4)
+                except Exception:
+                    pass
 
             return {
                 "wan_status": "Connected" if wan_up else "Disconnected",
@@ -275,17 +327,12 @@ class TeltonikaCollector(CellularCollector):
 
     def get_device_info(self) -> Dict:
         """Get device/modem information."""
-        try:
-            # Get modem info from gsmctl -E
-            info_json = self._ssh_exec("gsmctl -E")
-            data = json.loads(info_json)
-            cache = data.get("cache", {})
+        data = self._fetch_gsmctl_info()
+        cache = data.get("cache", {}) if isinstance(data, dict) else {}
 
-            # Use router model as primary, include modem model in manufacturer field
+        if data:
             router_model = "RUTM50"
-            modem_model = data.get("model", "")
             modem_manufacturer = data.get("manuf", "")
-
             return {
                 "model": router_model,
                 "manufacturer": f"Teltonika/{modem_manufacturer}" if modem_manufacturer else "Teltonika",
@@ -293,11 +340,11 @@ class TeltonikaCollector(CellularCollector):
                 "imei": cache.get("imei", ""),
                 "serial": cache.get("serial_num", ""),
             }
-        except Exception:
-            return {
-                "model": "RUTM50",
-                "manufacturer": "Teltonika",
-                "firmware": "",
-                "imei": "",
-                "serial": "",
-            }
+
+        return {
+            "model": "RUTM50",
+            "manufacturer": "Teltonika",
+            "firmware": "",
+            "imei": "",
+            "serial": "",
+        }
