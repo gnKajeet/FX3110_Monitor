@@ -7,6 +7,7 @@ services:
     container_name: fx3110-monitor
     restart: unless-stopped
     network_mode: host  # Use host networking to access eth0 interface directly
+    user: "1000:1000"  # Run as host user to write to logs
     volumes:
       - ./logs:/logs
       - /etc/localtime:/etc/localtime:ro  # Sync container time with host
@@ -15,6 +16,7 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1  # Ensure logs are written immediately
+    command: sh -c "python monitor.py | tee /logs/fx3110_log.tsv"
     cap_add:
       - NET_RAW  # Required for ping
       - NET_ADMIN  # Required for network interface binding

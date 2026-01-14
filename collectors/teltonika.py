@@ -118,20 +118,29 @@ class TeltonikaCollector(CellularCollector):
         }
 
     def get_connection_status(self) -> Dict:
-        """Get WAN connection status."""
+        """Get WAN connection status with improved failover detection."""
         try:
             wan_json = self._ssh_exec("ubus call network.interface.wan status")
             wan_data = json.loads(wan_json)
             wan_up = wan_data.get("up", False)
             wan_device = wan_data.get("device", "")
 
-            # Determine WAN source from device name
+            # Determine WAN source by checking both device name and route
             wan_source = ""
             if wan_device:
                 if self.cell_iface and self.cell_iface in wan_device:
                     wan_source = "Cellular"
                 else:
-                    wan_source = "Ethernet"
+                    # Check routing table to verify actual path
+                    # If WAN is ethernet but cellular is active, it's using cellular failover
+                    try:
+                        route_check = self._ssh_exec(f"ip route get 8.8.8.8 | grep -o 'dev [^ ]*'")
+                        if route_check and self.cell_iface in route_check:
+                            wan_source = "Cellular"
+                        else:
+                            wan_source = "Ethernet"
+                    except Exception:
+                        wan_source = "Ethernet"
 
             # Get IP address
             device_ipv4 = ""

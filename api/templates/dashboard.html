@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FX3110 Monitor Dashboard</title>
+    <title>Cellular Monitor Dashboard</title>
     <style>
         * {
             margin: 0;
@@ -219,8 +219,8 @@
 <body>
     <div class="container">
         <header>
-            <h1>FX3110 Monitor Dashboard</h1>
-            <div class="subtitle">Real-time cellular modem monitoring</div>
+            <h1 id="dashboardTitle">Cellular Monitor Dashboard</h1>
+            <div class="subtitle" id="dashboardSubtitle">Real-time cellular modem monitoring</div>
         </header>
 
         <div class="refresh-indicator" id="refreshStatus">
@@ -228,9 +228,9 @@
         </div>
 
         <div class="grid">
-            <!-- FX3110 WAN Source - Most Important -->
+            <!-- WAN Source - Most Important -->
             <div class="card">
-                <h2>🌐 FX3110 WAN Source</h2>
+                <h2 id="wanSourceTitle">🌐 WAN Source</h2>
                 <div class="large-value" id="wanSource">-</div>
                 <div class="stat-row">
                     <span class="stat-label">RPi Interface</span>
@@ -385,6 +385,16 @@
 
         function updateStatus(data) {
             if (!data) return;
+
+            // Update title based on device model
+            const model = data.model || '';
+            const manufacturer = data.manufacturer || '';
+            if (model) {
+                document.getElementById('dashboardTitle').textContent = `${model} Monitor Dashboard`;
+                document.getElementById('dashboardSubtitle').textContent = `Real-time ${manufacturer} cellular modem monitoring`;
+                document.getElementById('wanSourceTitle').textContent = `🌐 ${model} WAN Source`;
+                document.title = `${model} Monitor Dashboard`;
+            }
 
             // WAN Source (Most Important)
             const wanSource = data.wan_source || 'Unknown';

@@ -61,6 +61,12 @@ class LogParser:
                 "rsrp": row.get("RSRP", ""),
                 "rsrq": row.get("RSRQ", ""),
                 "snr": row.get("SNR", ""),
+                "rssi": row.get("RSSI", ""),
+                "model": row.get("Model", ""),
+                "manufacturer": row.get("Manufacturer", ""),
+                "firmware": row.get("Firmware", ""),
+                "imei": row.get("IMEI", ""),
+                "serial": row.get("Serial", ""),
                 "conn_dev_count": row.get("ConnDevCount", ""),
                 "conn_dev_names": row.get("ConnDevNames", ""),
             }

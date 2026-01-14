@@ -29,5 +29,5 @@ RUN useradd -m -u 1000 monitor && \
     chown -R monitor:monitor /app /logs
 USER monitor
 
-# Default command: run new modular monitor and output to /logs
-CMD ["sh", "-c", "python monitor.py > /logs/fx3110_log.tsv 2>&1"]
+# Default command: run new modular monitor
+CMD ["python", "monitor.py"]
