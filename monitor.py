@@ -6,9 +6,11 @@ Supports Inseego FX-series and Teltonika RUT-series routers.
 import os
 import time
 from datetime import datetime
+from dotenv import load_dotenv
 
 from collectors import InseegoCollector, TeltonikaCollector, RPiNetworkCollector
 
+load_dotenv()
 
 # --- Configuration from Environment ---
 DEVICE_TYPE = os.getenv("DEVICE_TYPE", "fx3110").strip().lower()

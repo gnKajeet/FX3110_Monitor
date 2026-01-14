@@ -77,6 +77,48 @@ python FX3110_Monitor.py > fx3110_log.tsv
 - `RUTM50_SSH_HOST`, `RUTM50_SSH_USER`, `RUTM50_SSH_KEY`: SSH access (used for `rutm50`)
 - Refresh intervals and display limits
 
+## Chromebook Linux (no Docker)
+
+This uses the Linux container terminal on ChromeOS and runs both the monitor and the API directly.
+
+```bash
+cd ~/FX3110_Monitor
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt -r api/requirements.txt
+
+cp .env.example .env
+nano .env  # Set BIND_INTERFACE (e.g., eth0 or usb0) and DEVICE_TYPE
+
+mkdir -p logs
+python3 monitor.py | tee logs/fx3110_log.tsv
+```
+
+In a second terminal (same venv), start the dashboard API and bind to all interfaces:
+
+```bash
+uvicorn api.main:app --host 0.0.0.0 --port 8080
+```
+
+Open the dashboard:
+- From inside the Linux container: `http://localhost:8080/`
+- From ChromeOS browser: `http://penguin.linux.test:8080/`
+
+If you need access from another device, keep `--host 0.0.0.0` and open port 8080 in your firewall.
+
+### Non-Docker equivalents of Docker settings
+
+These map the `docker-compose.yml` settings to the manual setup:
+
+- `network_mode: host` → run directly on the host so `ping -I <iface>` can bind to the modem interface.
+- `cap_add: NET_RAW/NET_ADMIN` → if `ping -I <iface>` fails with permission errors, run the monitor with `sudo` or grant ping caps:
+  - `sudo setcap cap_net_raw,cap_net_admin=eip $(which ping)`
+- `./logs:/logs` → use `logs/fx3110_log.tsv` locally (the API defaults to `logs/` when `/logs` doesn't exist).
+- `env_file: .env` → run from the repo so `monitor.py` loads `.env` via `python-dotenv`.
+- `ports: 8080:8080` → run `uvicorn api.main:app --host 0.0.0.0 --port 8080`.
+
+If you don't need interface binding, you can set `BIND_INTERFACE=` in `.env` to disable `-I` on ping.
+
 ## Output Format
 
 Tab-separated values (TSV) with headers:

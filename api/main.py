@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,10 +20,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="/app/static"), name="static")
+# Mount static files (prefer Docker paths when available)
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = Path("/app/static") if Path("/app/static").exists() else BASE_DIR / "static"
+TEMPLATE_DIR = Path("/app/templates") if Path("/app/templates").exists() else BASE_DIR / "templates"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-LOG_FILE = Path("/logs/fx3110_log.tsv")
+if os.getenv("LOG_FILE"):
+    LOG_FILE = Path(os.getenv("LOG_FILE", ""))
+elif Path("/logs").exists():
+    LOG_FILE = Path("/logs/fx3110_log.tsv")
+else:
+    LOG_FILE = BASE_DIR.parent / "logs" / "fx3110_log.tsv"
 MAX_CACHE_LINES = 1000  # Keep last 1000 lines in memory
 
 
@@ -217,7 +226,7 @@ parser = LogParser()
 @app.get("/")
 async def root():
     """Redirect to dashboard."""
-    return FileResponse("/app/templates/dashboard.html")
+    return FileResponse(str(TEMPLATE_DIR / "dashboard.html"))
 
 
 @app.get("/api/status")
