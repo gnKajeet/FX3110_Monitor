@@ -109,8 +109,21 @@ Tab-separated values (TSV) stored in `./logs/fx3110_log.tsv` with headers:
 ## Development Workflow
 - Code is mirrored from work GitHub
 - Test locally on development machine
-- Deploy to RPi via SSH at inseego@192.168.86.38
+- Deploy to RPi via SCP (RPi is not authenticated with GitHub)
 - Container automatically restarts on failure
+
+### Deployment Process (RPi not GitHub authenticated)
+1. Commit and push changes from dev machine to GitHub
+2. SCP updated files to RPi: `scp <file> inseego@192.168.86.38:~/FX3110_Monitor/<path>`
+3. SSH to RPi and rebuild containers:
+   ```bash
+   ssh inseego@192.168.86.38
+   cd FX3110_Monitor
+   docker compose down
+   docker compose build --no-cache
+   docker compose up -d
+   ```
+4. Verify deployment: `docker logs --tail 20 fx3110-monitor`
 
 ## Security Considerations
 - Container runs as non-root user (UID 1000)
