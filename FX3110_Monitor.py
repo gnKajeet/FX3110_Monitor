@@ -217,10 +217,13 @@ class RUTM50Client:
         if not self.host:
             raise RuntimeError("RUTM50_SSH_HOST is not set")
 
-        cmd = ["ssh", "-p", str(self.port), "-o", "BatchMode=yes", "-o", f"StrictHostKeyChecking={self.strict}",
+        # Build SSH command - don't use BatchMode with password auth
+        cmd = ["ssh", "-p", str(self.port), "-o", f"StrictHostKeyChecking={self.strict}",
                "-o", f"ConnectTimeout={int(self.timeout)}"]
+
         if self.key:
-            cmd.extend(["-i", self.key])
+            cmd.extend(["-i", self.key, "-o", "BatchMode=yes"])  # BatchMode only with key auth
+
         cmd.append(f"{self.user}@{self.host}")
         cmd.append(command)
 
