@@ -120,9 +120,8 @@ class TeltonikaCollector(CellularCollector):
     def get_connection_status(self) -> Dict:
         """Get WAN connection status using `mwan3 status` when available.
 
-        The method prefers `mwan3 status` output (which is failover-aware). If
-        `mwan3` is unavailable or parsing fails, it falls back to the previous
-        `ubus`-based implementation.
+        Checks active routing policy to determine which interface is actually
+        being used for WAN traffic, not just which interfaces are online.
         """
         try:
             # Prefer mwan3 for a failover-aware status
@@ -132,44 +131,46 @@ class TeltonikaCollector(CellularCollector):
             wan_source = ""
 
             if mwan_text:
-                iface_status = {}
+                # First, parse active policy to see which interface is routing traffic
+                # Look for lines like "mob1s1a1 (100%)" or "wan (100%)"
+                # Find ALL interface percentages, then pick the one with 100%
+                for match in re.finditer(r"^\s*(\w+)\s*\((\d+)%\)", mwan_text, re.MULTILINE):
+                    iface = match.group(1)
+                    percent = int(match.group(2))
 
-                # Match lines like:
-                #  interface wan is online 00h:21m:09s, uptime 01h:32m:23s and tracking is active
-                #  interface mob1s1a1 is online 01h:31m:46s, uptime 01h:32m:02s and tracking is active
-                for m in re.finditer(r"^\s*interface\s+(?P<iface>\S+)\s+is\s+(?P<status>\w+)", mwan_text, re.IGNORECASE | re.MULTILINE):
-                    iface_status[m.group('iface')] = m.group('status').lower()
+                    # If this interface has 100%, it's the active route
+                    if percent == 100:
+                        wan_device = iface
+                        wan_up = True
+                        break
+                else:
+                    # Fallback: check which interfaces are online
+                    iface_status = {}
+                    for m in re.finditer(r"^\s*interface\s+(?P<iface>\S+)\s+is\s+(?P<status>\w+)",
+                                        mwan_text, re.IGNORECASE | re.MULTILINE):
+                        iface_status[m.group('iface')] = m.group('status').lower()
 
-                # Fallback: look for other common patterns if above didn't match
-                if not iface_status:
-                    for m in re.finditer(r"(?P<iface>\b[\w-]+\b).{0,40}\b(online|offline|up|down)\b", mwan_text, re.IGNORECASE):
-                        iface = m.group('iface')
-                        status = m.group(2).lower()
-                        iface_status.setdefault(iface, status)
+                    # Pick first online interface (wan preferred over cellular for consistency)
+                    if iface_status:
+                        # Check wan first
+                        if iface_status.get('wan') in ('online', 'up'):
+                            wan_device = 'wan'
+                            wan_up = True
+                        # Then check cellular
+                        elif self.cell_iface and iface_status.get(self.cell_iface) in ('online', 'up'):
+                            wan_device = self.cell_iface
+                            wan_up = True
 
-                # Pick the online interface, preferring the configured cellular iface
-                if iface_status:
-                    if self.cell_iface:
-                        for k, v in iface_status.items():
-                            if self.cell_iface in k and v in ('online', 'up'):
-                                wan_up = True
-                                wan_device = k
-                                break
-
-                    if not wan_device:
-                        for k, v in iface_status.items():
-                            if v in ('online', 'up'):
-                                wan_up = True
-                                wan_device = k
-                                break
-
-                    if wan_device:
-                        if self.cell_iface and self.cell_iface in wan_device:
-                            wan_source = "Cellular"
-                        elif 'eth' in wan_device.lower() or wan_device.lower().startswith('lan'):
-                            wan_source = "Ethernet"
-                        else:
-                            wan_source = "Cellular" if 'wan' in wan_device.lower() else "Ethernet"
+                # Determine source based on device name
+                if wan_device:
+                    if self.cell_iface and self.cell_iface in wan_device:
+                        wan_source = "Cellular"
+                    elif 'eth' in wan_device.lower() or 'lan' in wan_device.lower():
+                        wan_source = "Ethernet"
+                    elif 'wan' in wan_device.lower():
+                        wan_source = "Ethernet"  # 'wan' typically means ethernet WAN
+                    else:
+                        wan_source = "Unknown"
 
             # If we still need an IP address, try ubus (ubus gives structured IP info)
             device_ipv4 = ""
