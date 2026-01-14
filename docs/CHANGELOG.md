@@ -7,6 +7,142 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-01-13
+
+### Added - Modular Architecture Refactoring
+
+#### Multi-Device Support via Collector Modules
+- **Abstract Base Classes**: Defined `CellularCollector` and `NetworkCollector` interfaces
+  - Standardized methods: get_signal_metrics(), get_network_info(), get_connection_status(), get_sim_info(), get_device_info()
+  - Enables easy addition of new device types
+- **Factory Pattern**: `build_cellular_collector()` function selects collector based on DEVICE_TYPE env var
+- **TeltonikaCollector**: Full support for Teltonika RUTM50/RUTX routers
+  - SSH-based data collection via gsmctl, ubus, and mwan3
+  - Password authentication (sshpass) or SSH key support
+  - Configurable cellular interface name
+- **InseegoCollector**: Existing FX3110/FX2000 support refactored into modular design
+  - HTTP scraping of web interface
+  - HTML element ID extraction
+  - JSON endpoint parsing
+- **RPiNetworkCollector**: Separated network utilities from device-specific collectors
+  - Ping with optional interface binding
+  - Route detection
+  - Public IP lookup with failover providers
+- **New Main Entry Point**: `monitor.py` replaces monolithic FX3110_Monitor.py
+  - Clean separation of concerns
+  - Simplified main loop
+  - Better error handling with safe_get() wrapper
+
+#### Enhanced WAN Source Detection (RUTM50)
+- **mwan3 Integration**: Uses `mwan3 status` for failover-aware WAN detection
+  - Parses active routing policy (checks for 100% allocation)
+  - Correctly identifies Cellular vs Ethernet based on actual traffic routing
+  - Falls back to ubus + route checking if mwan3 unavailable
+- **Policy-Based Detection**: No longer relies only on interface online status
+  - Fixes false positives when both interfaces are online but only one is routing
+
+#### Dynamic Dashboard Improvements
+- **Device-Specific Titles**: Dashboard title updates based on device model
+  - "RUTM50 Monitor Dashboard" for Teltonika routers
+  - "FX3110 Monitor Dashboard" for Inseego modems
+  - Manufacturer field shows router/modem combo (e.g., "Teltonika/Quectel")
+- **Model Information**: Added model, manufacturer, firmware, IMEI, serial to API responses
+  - Displayed in dashboard subtitle: "Real-time Teltonika cellular modem monitoring"
+  - All fields parsed from TSV logs
+
+#### Documentation
+- **MODULAR_ARCHITECTURE.md**: Comprehensive architecture guide
+  - Abstract base classes documentation
+  - Factory pattern explanation
+  - Collector implementation details
+  - Critical bug fixes documented
+  - Testing strategy and migration guide
+  - Template for adding new device types
+- **CURRENT_STATUS.md**: Living document showing project state
+  - Current deployment details
+  - Active configuration
+  - Known issues and testing status
+  - Data flow diagrams
+  - Next steps roadmap
+- **.clinerules**: Updated with modular architecture details
+  - Collector system overview
+  - Data collection methods for each device
+  - Critical bug fix documentation
+
+### Changed
+
+#### Container Architecture
+- **User Permissions**: Monitor container now runs as host user (UID 1000:1000)
+  - Fixes permission denied errors when writing logs
+  - Proper ownership of mounted log directory
+- **Logging Strategy**: Changed CMD to use tee for dual output
+  - Logs written to both docker logs (stdout) and TSV file
+  - Easier debugging with `docker-compose logs -f`
+- **Dockerfile Simplification**: Removed inline comments causing build errors
+  - Separate comment lines for better compatibility
+
+#### RUTM50 Data Collection
+- **Signal Metrics Source**: Now reads from gsmctl -E JSON cache object
+  - `cache.rsrp_value`, `cache.rsrq_value`, `cache.sinr_value`, `cache.rssi_value`
+  - Previously incorrectly read from cell_info array
+- **APN Collection**: Uses correct UCI path `network.mob1s1a1.apn`
+  - Previously used incorrect `network.mobile.apn`
+- **Model Reporting**: Returns router model (RUTM50) instead of internal modem model (RG520N-NA)
+  - More user-friendly and accurate
+  - Modem manufacturer included in manufacturer field
+
+### Fixed
+
+#### Critical Signal Metrics Bug (RUTM50)
+- **Issue**: RSRP showing TAC (5382), RSRQ showing PCID (493), SNR empty
+- **Root Cause**: Parsing wrong fields from `gsmctl -E` JSON output
+  - Was reading from `cell_info[0].tac`, `cell_info[0].pcid`
+  - Should read from `cache.rsrp_value`, `cache.rsrq_value`
+- **Impact**: All signal quality metrics were incorrect for RUTM50 users
+- **Fix**: Updated TeltonikaCollector.get_signal_metrics() in collectors/teltonika.py:87-105
+- **Verification**: Confirmed RSRP=-92 dBm, RSRQ=-6 dB, SNR=15 dB, RSSI=-65 dBm
+
+#### WAN Source Detection Bug (RUTM50)
+- **Issue**: Dashboard showing "Cellular" when public IP indicated Ethernet (151.x range)
+- **Root Cause**: Code preferred cellular when both interfaces were online
+  - Checked interface status but not active routing policy
+  - mwan3 showed "wan (100%)" but code ignored this
+- **Impact**: False indication of cellular failover
+- **Fix**: Parse mwan3 output for interface with 100% policy allocation
+  - Updated collectors/teltonika.py:133-145
+  - Uses `re.finditer()` to find all percentages, selects the 100% interface
+- **Verification**: Correctly shows "Ethernet" when wan=100%, will show "Cellular" when mob1s1a1=100%
+
+#### Model Name Display
+- **Issue**: Dashboard displayed "RG520N-NA Monitor Dashboard" (internal modem model)
+- **Expected**: "RUTM50 Monitor Dashboard" (router model)
+- **Fix**: Updated TeltonikaCollector.get_device_info() to return router model as primary
+  - Model: "RUTM50"
+  - Manufacturer: "Teltonika/Quectel" (router/modem)
+- **Location**: collectors/teltonika.py:240-267
+
+#### Container Log Permissions
+- **Issue**: Container crash-looping with "Permission denied" writing to /logs/fx3110_log.tsv
+- **Cause**: Container user (UID 1000) didn't match log directory owner
+- **Fix**: Added `user: "1000:1000"` to docker-compose.yml
+- **Additional**: Changed logging strategy to use tee command for dual output
+
+### Deprecated
+
+- **FX3110_Monitor.py**: Legacy monolithic script marked as deprecated
+  - Kept in repository for backward compatibility
+  - monitor.py is now the official entry point
+  - Will be removed in v4.0.0
+
+### Security
+
+- **SSH Authentication**: TeltonikaCollector supports both password and key-based auth
+  - Automatically disables BatchMode for password auth
+  - StrictHostKeyChecking configurable (default: accept-new)
+  - sshpass required for password authentication
+
+---
+
 ## [2.0.0] - 2026-01-10
 
 ### Added - Major Feature Release
@@ -162,12 +298,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Version History
 
+- **v3.0.0** (2026-01-13) - Modular architecture, multi-device support, RUTM50 integration, critical bug fixes
 - **v2.0.0** (2026-01-10) - Real-time dashboard, WAN source tracking, anomaly detection, Docker deployment
 - **v1.0.0** (Initial) - Basic monitoring with TSV logging
 
 ---
 
 ## Upgrade Notes
+
+### Upgrading from v2.0.0 to v3.0.0
+
+**Breaking Changes:**
+- Main entry point changed from FX3110_Monitor.py to monitor.py
+- New collector modules required (collectors/ directory)
+- DEVICE_TYPE environment variable now required
+- TSV log format unchanged (backward compatible)
+
+**New Features:**
+- Multi-device support (Inseego FX3110 and Teltonika RUTM50)
+- Improved WAN source detection using mwan3
+- Dynamic dashboard titles based on device model
+- Fixed critical signal metrics bug for RUTM50
+
+**Migration Steps:**
+
+1. **Backup existing configuration:**
+   ```bash
+   cp .env .env.backup
+   ```
+
+2. **Pull latest code:**
+   ```bash
+   git fetch
+   git checkout refactor/modular-collectors
+   git pull
+   ```
+
+3. **Update .env file:**
+   ```bash
+   # For Teltonika RUTM50 users - ADD these lines:
+   DEVICE_TYPE=rutm50
+   RUTM50_SSH_HOST=192.168.3.1
+   RUTM50_SSH_USER=root
+   RUTM50_SSH_PASSWORD=your_password
+   RUTM50_CELL_IFACE=mob1s1a1
+
+   # For Inseego FX3110 users - ADD this line:
+   DEVICE_TYPE=inseego
+   # (DEVICE_BASE should already exist)
+   ```
+
+4. **Rebuild and restart:**
+   ```bash
+   docker-compose down
+   docker-compose up -d --build
+   ```
+
+5. **Verify operation:**
+   ```bash
+   # Check logs
+   docker-compose logs -f fx3110-monitor
+
+   # Check dashboard
+   curl http://localhost:8080/api/status
+   ```
+
+**Note:** Existing TSV logs are fully compatible. No data migration needed.
 
 ### Upgrading from v1.0.0 to v2.0.0
 
