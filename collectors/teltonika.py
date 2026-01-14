@@ -246,11 +246,12 @@ class TeltonikaCollector(CellularCollector):
         else:
             # If we can't determine slot, try to find which interface is actually up
             try:
-                # Check which mobile interface has an IP address
+                # Check which mobile interface is up (has IP or is online)
                 for iface in ["mob1s1a1", "mob1s2a1"]:
                     iface_json = self._ssh_exec(f"ubus call network.interface.{iface} status 2>/dev/null || echo '{{}}'")
                     iface_data = json.loads(iface_json)
-                    if iface_data.get("up", False) and iface_data.get("ipv4-address"):
+                    # Interface is active if it's up OR has an IP address
+                    if iface_data.get("up", False) or iface_data.get("ipv4-address"):
                         active_iface = iface
                         break
             except Exception:
