@@ -156,14 +156,17 @@ class TeltonikaCollector(CellularCollector):
                         if iface_status.get('wan') in ('online', 'up'):
                             wan_device = 'wan'
                             wan_up = True
-                        # Then check cellular
-                        elif self.cell_iface and iface_status.get(self.cell_iface) in ('online', 'up'):
-                            wan_device = self.cell_iface
+                        # Then check either SIM's cellular interface
+                        elif iface_status.get('mob1s1a1') in ('online', 'up'):
+                            wan_device = 'mob1s1a1'
+                            wan_up = True
+                        elif iface_status.get('mob1s2a1') in ('online', 'up'):
+                            wan_device = 'mob1s2a1'
                             wan_up = True
 
                 # Determine source based on device name
                 if wan_device:
-                    if self.cell_iface and self.cell_iface in wan_device:
+                    if 'mob1s' in wan_device:
                         wan_source = "Cellular"
                     elif 'eth' in wan_device.lower() or 'lan' in wan_device.lower():
                         wan_source = "Ethernet"
@@ -199,13 +202,13 @@ class TeltonikaCollector(CellularCollector):
                 # Determine WAN source by checking both device name and route
                 wan_source = ""
                 if wan_device:
-                    if self.cell_iface and self.cell_iface in wan_device:
+                    if 'mob1s' in wan_device:
                         wan_source = "Cellular"
                     else:
                         # Check routing table to verify actual path
                         try:
                             route_check = self._ssh_exec(f"ip route get 8.8.8.8 | grep -o 'dev [^ ]*'")
-                            if route_check and self.cell_iface in route_check:
+                            if route_check and 'mob1s' in route_check:
                                 wan_source = "Cellular"
                             else:
                                 wan_source = "Ethernet"
@@ -227,8 +230,37 @@ class TeltonikaCollector(CellularCollector):
                 return {"wan_status": "", "wan_source": "", "device_ipv4": ""}
 
     def get_sim_info(self) -> Dict:
-        """Get SIM card information."""
-        apn = self._ssh_exec_safe(f"uci get network.{self.cell_iface}.apn")
+        """Get SIM card information from the active SIM.
+
+        Detects which SIM slot is active and retrieves APN from that interface.
+        """
+        # Get the active SIM slot (1 or 2)
+        active_sim_slot = self._ssh_exec_safe("gsmctl -L").strip()
+
+        # Determine the active interface based on SIM slot
+        active_iface = self.cell_iface  # Default fallback
+        if active_sim_slot == "1":
+            active_iface = "mob1s1a1"
+        elif active_sim_slot == "2":
+            active_iface = "mob1s2a1"
+        else:
+            # If we can't determine slot, try to find which interface is actually up
+            try:
+                # Check which mobile interface has an IP address
+                for iface in ["mob1s1a1", "mob1s2a1"]:
+                    iface_json = self._ssh_exec(f"ubus call network.interface.{iface} status 2>/dev/null || echo '{{}}'")
+                    iface_data = json.loads(iface_json)
+                    if iface_data.get("up", False) and iface_data.get("ipv4-address"):
+                        active_iface = iface
+                        break
+            except Exception:
+                # Keep default fallback
+                pass
+
+        # Get APN from the active interface
+        apn = self._ssh_exec_safe(f"uci get network.{active_iface}.apn")
+
+        # Get ICCID and status (these reflect the active SIM)
         iccid = self._ssh_exec_safe("gsmctl -J")
         sim_status = self._ssh_exec_safe("gsmctl -z")
 
@@ -236,6 +268,8 @@ class TeltonikaCollector(CellularCollector):
             "apn": apn.strip(),
             "iccid": iccid.strip(),
             "sim_status": sim_status.strip(),
+            "active_sim_slot": active_sim_slot,  # Add this for visibility
+            "active_interface": active_iface,  # Add this for debugging
         }
 
     def get_device_info(self) -> Dict:
