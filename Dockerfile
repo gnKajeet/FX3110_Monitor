@@ -16,7 +16,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY FX3110_Monitor.py .
+COPY monitor.py .
+COPY collectors/ ./collectors/
+COPY FX3110_Monitor.py .  # Keep for backward compatibility
 
 # Create directory for logs
 RUN mkdir -p /logs
@@ -26,5 +28,5 @@ RUN useradd -m -u 1000 monitor && \
     chown -R monitor:monitor /app /logs
 USER monitor
 
-# Default command: run monitor and output to /logs
-CMD ["sh", "-c", "python FX3110_Monitor.py > /logs/fx3110_log.tsv 2>&1"]
+# Default command: run new modular monitor and output to /logs
+CMD ["sh", "-c", "python monitor.py > /logs/fx3110_log.tsv 2>&1"]
