@@ -81,15 +81,56 @@ python FX3110_Monitor.py > fx3110_log.tsv
 
 This uses the Linux container terminal on ChromeOS and runs both the monitor and the API directly.
 
+### Initial Setup
+
 ```bash
 cd ~/FX3110_Monitor
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r api/requirements.txt
 
+# Install sshpass for RUTM50 password-based SSH (if using RUTM50)
+sudo apt-get update && sudo apt-get install -y sshpass
+
 cp .env.example .env
 nano .env  # Set BIND_INTERFACE (e.g., eth0 or usb0) and DEVICE_TYPE
+```
 
+### Important: Environment Variable Handling
+
+The monitor uses `python-dotenv` to load configuration from `.env`, but **shell environment variables take precedence** over the `.env` file. This can cause issues if you have old RUTM50_* or other config variables set in your shell.
+
+**To avoid configuration conflicts:**
+
+1. **Clear any existing environment variables before running:**
+   ```bash
+   # Clear all RUTM50 variables
+   unset $(env | grep '^RUTM50_' | cut -d= -f1)
+
+   # Or start with a clean shell
+   bash --norc --noprofile
+   source .venv/bin/activate
+   ```
+
+2. **For RUTM50 SSH authentication, choose ONE method:**
+   - **Password-based** (recommended for quick setup): Comment out `RUTM50_SSH_KEY` in `.env`
+   - **Key-based**: Set `RUTM50_SSH_KEY` path and comment out `RUTM50_SSH_PASSWORD`
+
+3. **Verify your configuration is loaded correctly:**
+   ```bash
+   python3 -c "
+   import os
+   from dotenv import load_dotenv
+   load_dotenv()
+   print(f'DEVICE_TYPE={os.getenv(\"DEVICE_TYPE\")}')
+   print(f'RUTM50_SSH_HOST={os.getenv(\"RUTM50_SSH_HOST\")}')
+   print(f'RUTM50_SSH_KEY={os.getenv(\"RUTM50_SSH_KEY\")}')
+   "
+   ```
+
+### Running the Monitor
+
+```bash
 mkdir -p logs
 python3 monitor.py | tee logs/fx3110_log.tsv
 ```
@@ -97,6 +138,7 @@ python3 monitor.py | tee logs/fx3110_log.tsv
 In a second terminal (same venv), start the dashboard API and bind to all interfaces:
 
 ```bash
+source .venv/bin/activate
 uvicorn api.main:app --host 0.0.0.0 --port 8080
 ```
 
@@ -170,13 +212,74 @@ Access the real-time monitoring dashboard at `http://<raspberry-pi-ip>:8080/`
 - Cellular data usage tracking
 - Historical trend analysis
 
+## Troubleshooting
+
+### Dashboard shows blank cellular data fields
+
+**Symptoms**: Dashboard loads but shows empty values for RSRP, Carrier, Tech, Band, etc.
+
+**Common causes and fixes:**
+
+1. **Missing `sshpass` (RUTM50 only)**
+   ```bash
+   sudo apt-get install -y sshpass
+   ```
+
+2. **Environment variable conflicts** - Shell variables override `.env` file
+   ```bash
+   # Check what's actually loaded
+   python3 -c "
+   import os
+   from dotenv import load_dotenv
+   load_dotenv()
+   print('HOST:', os.getenv('RUTM50_SSH_HOST'))
+   print('KEY:', os.getenv('RUTM50_SSH_KEY'))
+   print('PASS:', os.getenv('RUTM50_SSH_PASSWORD'))
+   "
+
+   # Clear old variables and restart
+   unset $(env | grep '^RUTM50_' | cut -d= -f1)
+   python3 monitor.py
+   ```
+
+3. **SSH key path pointing to non-existent file**
+   - Comment out `RUTM50_SSH_KEY` in `.env` if using password auth
+   - OR create the SSH key and copy to the router
+
+4. **Wrong IP address or SSH credentials**
+   ```bash
+   # Test SSH connection manually
+   sshpass -p "your_password" ssh -o StrictHostKeyChecking=accept-new root@192.168.8.1 "gsmctl -q"
+   ```
+
+5. **Monitor not restarted after `.env` changes**
+   - Always kill and restart the monitor after editing `.env`
+   ```bash
+   pkill -f "python3 monitor.py"
+   python3 monitor.py | tee logs/fx3110_log.tsv
+   ```
+
+### Verify data collection is working
+
+```bash
+# Check recent log entries
+tail -2 logs/fx3110_log.tsv
+
+# Should show populated fields like:
+# Timestamp  SourceIP  ...  WanStatus  SimStatus  Tech  Band  Carrier  RSRP  RSRQ  ...
+# 2026-01-14 18:40:53  ...  Connected  Inserted   LTE   B66   AT&T     -93   -12   ...
+```
+
 ## Requirements
 
 - **Hardware**: Raspberry Pi 4+ (or any Linux system with dual network interfaces)
-- **Software**: Docker and docker-compose (or Python 3.8+ for manual deployment)
+- **Software**:
+  - Docker and docker-compose (for Docker deployment), OR
+  - Python 3.8+ for manual deployment
+  - `sshpass` package (for RUTM50 password-based SSH)
 - **Network**:
   - FX3110: Access to management UI (default: http://192.168.1.1)
-  - RUTM50: SSH access to the router (key-based recommended)
+  - RUTM50: SSH access to the router (password or key-based)
 
 ## License
 
