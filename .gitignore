@@ -11,6 +11,7 @@ env/
 *.log
 *.tsv
 logs/
+logs_from_rpi/
 
 .DS_Store
 Thumbs.db
