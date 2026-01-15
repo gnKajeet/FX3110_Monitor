@@ -30,6 +30,8 @@ services:
       - "8080:8080"  # Expose API/dashboard on all interfaces
     volumes:
       - ./logs:/logs:ro  # Read-only access to monitor logs
+    env_file:
+      - .env
     depends_on:
       - fx3110-monitor
 
