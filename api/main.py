@@ -1,4 +1,5 @@
 import os
+import subprocess
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -8,6 +9,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import csv
 from collections import deque
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(title="FX3110 Monitor API", version="1.0.0")
 
@@ -304,6 +308,115 @@ async def health_check():
         "cached_entries": len(parser.cache),
         "last_read": parser.last_read_time.isoformat() if parser.last_read_time else None,
     }
+
+
+def _ssh_exec(command: str) -> str:
+    """Execute SSH command on RUTM50 device."""
+    ssh_host = os.getenv("RUTM50_SSH_HOST", "")
+    ssh_user = os.getenv("RUTM50_SSH_USER", "root")
+    ssh_port = os.getenv("RUTM50_SSH_PORT", "22")
+    ssh_password = os.getenv("RUTM50_SSH_PASSWORD")
+    ssh_key = os.getenv("RUTM50_SSH_KEY")
+    ssh_strict = os.getenv("RUTM50_SSH_STRICT", "accept-new")
+    ssh_timeout = float(os.getenv("RUTM50_SSH_TIMEOUT", "5"))
+
+    if not ssh_host:
+        raise HTTPException(status_code=500, detail="RUTM50_SSH_HOST not configured")
+
+    # Build SSH command
+    cmd = [
+        "ssh",
+        "-p", ssh_port,
+        "-o", f"StrictHostKeyChecking={ssh_strict}",
+        "-o", f"ConnectTimeout={int(ssh_timeout)}",
+    ]
+
+    if ssh_key:
+        cmd.extend(["-i", ssh_key, "-o", "BatchMode=yes"])
+
+    cmd.append(f"{ssh_user}@{ssh_host}")
+    cmd.append(command)
+
+    if ssh_password and not ssh_key:
+        # Check for sshpass
+        if subprocess.run(["which", "sshpass"], capture_output=True).returncode != 0:
+            raise HTTPException(status_code=500, detail="sshpass is required for password-based SSH")
+        cmd = ["sshpass", "-p", ssh_password] + cmd
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=ssh_timeout + 2
+        )
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"SSH command failed: {result.stderr.strip() or 'Unknown error'}"
+            )
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="SSH command timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SSH error: {str(e)}")
+
+
+@app.get("/api/sim/current")
+async def get_current_sim():
+    """Get current active SIM slot (RUTM50 only)."""
+    device_type = os.getenv("DEVICE_TYPE", "fx3110").strip().lower()
+
+    if device_type != "rutm50":
+        raise HTTPException(status_code=400, detail="SIM switching only supported for RUTM50")
+
+    try:
+        slot = _ssh_exec("gsmctl -T")
+        return {"current_slot": int(slot.strip()), "device_type": "rutm50"}
+    except ValueError:
+        raise HTTPException(status_code=500, detail=f"Invalid SIM slot response: {slot}")
+
+
+@app.post("/api/sim/switch")
+async def switch_sim():
+    """Switch to the other SIM slot (RUTM50 only)."""
+    device_type = os.getenv("DEVICE_TYPE", "fx3110").strip().lower()
+
+    if device_type != "rutm50":
+        raise HTTPException(status_code=400, detail="SIM switching only supported for RUTM50")
+
+    try:
+        # Get current slot
+        current_slot_str = _ssh_exec("gsmctl -T")
+        current_slot = int(current_slot_str.strip())
+
+        # Switch to the other slot
+        switch_response = _ssh_exec("gsmctl -Y")
+
+        # Validate the response
+        if switch_response.strip() != "OK":
+            raise HTTPException(
+                status_code=500,
+                detail=f"SIM switch command failed with response: {switch_response}"
+            )
+
+        # Wait a moment for the switch to complete
+        import time
+        time.sleep(2)
+
+        # Verify new slot
+        new_slot_str = _ssh_exec("gsmctl -T")
+        new_slot = int(new_slot_str.strip())
+
+        return {
+            "success": True,
+            "previous_slot": current_slot,
+            "current_slot": new_slot,
+            "message": f"Switched from SIM {current_slot} to SIM {new_slot}"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=f"Invalid SIM slot response: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SIM switch failed: {str(e)}")
 
 
 @app.on_event("startup")

@@ -148,6 +148,27 @@ Open the dashboard:
 
 If you need access from another device, keep `--host 0.0.0.0` and open port 8080 in your firewall.
 
+### Network Isolation (Avoid Internet Disruption During SIM Switching)
+
+**Problem:** When switching SIM slots on the RUTM50, the cellular modem disconnects briefly (2-10 seconds), which interrupts your internet if the Chromebook is using the RUTM50 for internet access.
+
+**Solution:** Use WiFi for internet, ethernet for monitoring:
+
+1. **Connect ChromeOS to WiFi** for general internet access
+2. **Connect to RUTM50 via Ethernet** for monitoring only
+3. ChromeOS automatically prefers WiFi, so SIM switches won't affect your internet
+
+**Optional routing scripts** (for advanced users):
+```bash
+# Enable selective routing (RUTM50 traffic only through eth0)
+./scripts/enable-rutm50-routing.sh
+
+# Disable selective routing (restore default)
+./scripts/disable-rutm50-routing.sh
+```
+
+See [NETWORK_ISOLATION.md](docs/NETWORK_ISOLATION.md) for detailed setup instructions and testing procedures.
+
 ### Non-Docker equivalents of Docker settings
 
 These map the `docker-compose.yml` settings to the manual setup:

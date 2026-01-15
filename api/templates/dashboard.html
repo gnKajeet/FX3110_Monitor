@@ -214,6 +214,51 @@
         .interface-eth0 { color: #10b981; }
         .interface-wlan0 { color: #f59e0b; }
         .interface-unknown { color: #ef4444; }
+
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            width: 100%;
+            margin-top: 12px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .sim-slot-indicator {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #667eea;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
     </style>
 </head>
 <body>
@@ -326,6 +371,12 @@
                     <span class="stat-label">Status</span>
                     <span class="stat-value" id="simStatus">-</span>
                 </div>
+                <div class="stat-row" id="simSlotRow" style="display: none;">
+                    <span class="stat-label">Active Slot</span>
+                    <span class="stat-value">
+                        SIM <span id="simSlot">-</span>
+                    </span>
+                </div>
                 <div class="stat-row">
                     <span class="stat-label">APN</span>
                     <span class="stat-value" id="apn">-</span>
@@ -334,6 +385,9 @@
                     <span class="stat-label">ICCID</span>
                     <span class="stat-value" id="iccid" style="font-size: 11px;">-</span>
                 </div>
+                <button class="btn btn-primary" id="switchSimBtn" style="display: none;" onclick="switchSIM()">
+                    Switch SIM Slot
+                </button>
             </div>
 
             <!-- Connected Devices -->
@@ -517,9 +571,87 @@
             updateChanges(changes);
             updateAnomalies(anomalies);
 
+            // Fetch and update SIM slot info for RUTM50
+            await updateSimSlot();
+
             const now = new Date().toLocaleTimeString();
             refreshStatus.textContent = `Last updated: ${now}`;
             refreshStatus.classList.remove('loading');
+        }
+
+        async function updateSimSlot() {
+            try {
+                const response = await fetch('/api/sim/current');
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('simSlot').textContent = data.current_slot;
+                    document.getElementById('simSlotRow').style.display = '';
+
+                    // Show the switch button for RUTM50
+                    const switchBtn = document.getElementById('switchSimBtn');
+                    switchBtn.style.display = '';
+
+                    // Enable/disable button based on modem status
+                    const wanStatus = document.getElementById('wanStatus').textContent;
+                    const simStatus = document.getElementById('simStatus').textContent;
+
+                    // Disable button if modem is offline or SIM is not inserted
+                    if (wanStatus === 'Disconnected' || simStatus === '' || simStatus === '-') {
+                        switchBtn.disabled = true;
+                        switchBtn.textContent = 'Switch SIM Slot (Offline)';
+                    } else {
+                        switchBtn.disabled = false;
+                        switchBtn.textContent = 'Switch SIM Slot';
+                    }
+                }
+            } catch (error) {
+                // Not a RUTM50 or SIM API not available, hide the elements
+                document.getElementById('simSlotRow').style.display = 'none';
+                document.getElementById('switchSimBtn').style.display = 'none';
+            }
+        }
+
+        async function switchSIM() {
+            const switchBtn = document.getElementById('switchSimBtn');
+            const originalText = switchBtn.textContent;
+
+            // Disable button and show loading state
+            switchBtn.disabled = true;
+            switchBtn.textContent = 'Switching...';
+
+            try {
+                const response = await fetch('/api/sim/switch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Show success message
+                    switchBtn.textContent = `Switched to SIM ${data.current_slot}`;
+
+                    // Update the displayed slot
+                    document.getElementById('simSlot').textContent = data.current_slot;
+
+                    // Wait a bit, then refresh the dashboard
+                    setTimeout(() => {
+                        refreshDashboard();
+                    }, 2000);
+                } else {
+                    // Show error message
+                    const errorMsg = data.detail || data.message || 'Unknown error';
+                    alert(`SIM switch failed: ${errorMsg}`);
+                    switchBtn.textContent = originalText;
+                    switchBtn.disabled = false;
+                }
+            } catch (error) {
+                alert(`SIM switch error: ${error.message}`);
+                switchBtn.textContent = originalText;
+                switchBtn.disabled = false;
+            }
         }
 
         // Initial load
