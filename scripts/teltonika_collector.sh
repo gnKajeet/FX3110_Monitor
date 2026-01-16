@@ -36,6 +36,10 @@ echo "\"serving_info\": \"$(json_escape "$(gsmctl -K 2>/dev/null)")\","
 # SIM status (pin_state_str in cache might be sufficient, but check)
 echo "\"sim_status\": \"$(json_escape "$(gsmctl -z 2>/dev/null)")\","
 
+# Active SIM slot and ICCID (needed for SIM info detection)
+echo "\"active_sim\": \"$(json_escape "$(gsmctl -L 2>/dev/null)")\","
+echo "\"iccid\": \"$(json_escape "$(gsmctl -J 2>/dev/null)")\","
+
 # === INTERFACE STATUS (ubus - already JSON) ===
 WAN_STATUS=$(ubus call network.interface.wan status 2>/dev/null || echo '{}')
 echo "\"wan_status\": $WAN_STATUS,"
