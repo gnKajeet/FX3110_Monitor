@@ -1,9 +1,14 @@
 """
 Teltonika cellular router collector (RUTM50, RUTX series, etc.)
+
+Supports two modes:
+1. Individual SSH commands (legacy, ~20 SSH sessions per cycle)
+2. Collector script mode (1 SSH session per cycle) - recommended
 """
 import re
 import json
 import subprocess
+import sys
 from typing import Dict, Optional
 
 from .base import CellularCollector
@@ -22,6 +27,8 @@ class TeltonikaCollector(CellularCollector):
         ssh_strict: str = "accept-new",
         ssh_timeout: float = 5.0,
         cell_iface: str = "mob1s1a1",
+        use_collector_script: bool = False,
+        collector_script_path: str = "/tmp/teltonika_collector.sh",
     ):
         """
         Initialize Teltonika collector.
@@ -35,6 +42,8 @@ class TeltonikaCollector(CellularCollector):
             ssh_strict: StrictHostKeyChecking value
             ssh_timeout: SSH connection timeout in seconds
             cell_iface: Cellular interface name (e.g., mob1s1a1)
+            use_collector_script: If True, use single SSH call with collector script
+            collector_script_path: Path to collector script on router
         """
         self.host = ssh_host
         self.user = ssh_user
@@ -44,6 +53,9 @@ class TeltonikaCollector(CellularCollector):
         self.strict = ssh_strict
         self.timeout = ssh_timeout
         self.cell_iface = cell_iface
+        self.use_collector_script = use_collector_script
+        self.collector_script_path = collector_script_path
+        self._cached_data: Optional[Dict] = None
 
     def _ssh_exec(self, command: str) -> str:
         """Execute SSH command and return stdout."""
@@ -84,8 +96,55 @@ class TeltonikaCollector(CellularCollector):
         except Exception:
             return ""
 
+    def refresh_data(self) -> bool:
+        """
+        Refresh all data from router in a single SSH call.
+
+        Call this once per collection cycle before accessing individual metrics.
+        Returns True if data was successfully collected.
+        """
+        if not self.use_collector_script:
+            self._cached_data = None
+            return True
+
+        try:
+            output = self._ssh_exec(self.collector_script_path)
+            self._cached_data = json.loads(output)
+            return True
+        except json.JSONDecodeError as e:
+            print(f"[TeltonikaCollector] JSON parse error: {e}", file=sys.stderr)
+            self._cached_data = None
+            return False
+        except Exception as e:
+            print(f"[TeltonikaCollector] Collector script error: {e}", file=sys.stderr)
+            self._cached_data = None
+            return False
+
+    def clear_cache(self):
+        """Clear cached data, forcing fresh collection on next access."""
+        self._cached_data = None
+
+    def _get_cached(self, key: str, default: str = "") -> str:
+        """Get a string value from cached data."""
+        if self._cached_data is None:
+            return default
+        return str(self._cached_data.get(key, default))
+
+    def _get_cached_json(self, key: str) -> dict:
+        """Get a JSON object from cached data."""
+        if self._cached_data is None:
+            return {}
+        val = self._cached_data.get(key, {})
+        if isinstance(val, dict):
+            return val
+        return {}
+
     def _fetch_gsmctl_info(self) -> dict:
         """Fetch modem info JSON, trying multiple gsmctl commands."""
+        # Use cached data if available (collector script mode)
+        if self._cached_data is not None:
+            return self._get_cached_json("modem_info")
+
         for cmd in ("gsmctl -E", "gsmctl --info"):
             text = self._ssh_exec_safe(cmd)
             if not text:
@@ -125,7 +184,12 @@ class TeltonikaCollector(CellularCollector):
                 "rssi": cache.get("rssi_value"),
             }
 
-        text = self._ssh_exec_safe("gsmctl -q")
+        # Use cached signal_quality if available (collector script mode)
+        if self._cached_data is not None:
+            text = self._get_cached("signal_quality")
+        else:
+            text = self._ssh_exec_safe("gsmctl -q")
+
         if text:
             return self._parse_gsmctl_q(text)
 
@@ -133,9 +197,16 @@ class TeltonikaCollector(CellularCollector):
 
     def get_network_info(self) -> Dict:
         """Get network and carrier information."""
-        carrier = self._ssh_exec_safe("gsmctl -o")
-        tech = self._ssh_exec_safe("gsmctl -t")
-        band = self._ssh_exec_safe("gsmctl -b")
+        # Use cached data if available (collector script mode)
+        if self._cached_data is not None:
+            carrier = self._get_cached("operator")
+            tech = self._get_cached("technology")
+            band = self._get_cached("band")
+        else:
+            carrier = self._ssh_exec_safe("gsmctl -o")
+            tech = self._ssh_exec_safe("gsmctl -t")
+            band = self._ssh_exec_safe("gsmctl -b")
+
         bandwidth = ""
 
         if not (carrier.strip() or tech.strip() or band.strip()):
@@ -163,7 +234,12 @@ class TeltonikaCollector(CellularCollector):
         """
         try:
             # Prefer mwan3 for a failover-aware status
-            mwan_text = self._ssh_exec_safe("mwan3 status")
+            # Use cached data if available (collector script mode)
+            if self._cached_data is not None:
+                mwan_text = self._get_cached("mwan3_status")
+            else:
+                mwan_text = self._ssh_exec_safe("mwan3 status")
+
             wan_up = False
             wan_device = ""
             wan_source = ""
@@ -216,8 +292,12 @@ class TeltonikaCollector(CellularCollector):
             # If we still need an IP address, try ubus (ubus gives structured IP info)
             device_ipv4 = ""
             try:
-                wan_json = self._ssh_exec("ubus call network.interface.wan status")
-                wan_data = json.loads(wan_json)
+                # Use cached data if available (collector script mode)
+                if self._cached_data is not None:
+                    wan_data = self._get_cached_json("wan_status")
+                else:
+                    wan_json = self._ssh_exec("ubus call network.interface.wan status")
+                    wan_data = json.loads(wan_json)
                 addrs = wan_data.get("ipv4-address", [])
                 if addrs:
                     device_ipv4 = addrs[0].get("address", "")
@@ -227,8 +307,15 @@ class TeltonikaCollector(CellularCollector):
             # Fallback: check cellular interface if WAN is down
             if not wan_up:
                 try:
-                    cell_json = self._ssh_exec(f"ubus call network.interface.{self.cell_iface} status")
-                    cell_data = json.loads(cell_json)
+                    # Use cached data if available (collector script mode)
+                    if self._cached_data is not None:
+                        # Check cell1 first, then cell2
+                        cell_data = self._get_cached_json("cell1_status")
+                        if not cell_data.get("up"):
+                            cell_data = self._get_cached_json("cell2_status")
+                    else:
+                        cell_json = self._ssh_exec(f"ubus call network.interface.{self.cell_iface} status")
+                        cell_data = json.loads(cell_json)
                     cell_addrs = cell_data.get("ipv4-address", [])
                     if cell_data.get("up") or cell_addrs:
                         wan_up = True
@@ -287,7 +374,11 @@ class TeltonikaCollector(CellularCollector):
         Detects which SIM slot is active and retrieves APN from that interface.
         """
         # Get the active SIM slot (1 or 2)
-        active_sim_slot = self._ssh_exec_safe("gsmctl -L").strip()
+        # Use cached data if available (collector script mode)
+        if self._cached_data is not None:
+            active_sim_slot = self._get_cached("active_sim").strip()
+        else:
+            active_sim_slot = self._ssh_exec_safe("gsmctl -L").strip()
 
         # Determine the active interface based on SIM slot
         active_iface = self.cell_iface  # Default fallback
@@ -300,8 +391,13 @@ class TeltonikaCollector(CellularCollector):
             try:
                 # Check which mobile interface is up (has IP or is online)
                 for iface in ["mob1s1a1", "mob1s2a1"]:
-                    iface_json = self._ssh_exec(f"ubus call network.interface.{iface} status 2>/dev/null || echo '{{}}'")
-                    iface_data = json.loads(iface_json)
+                    # Use cached data if available
+                    if self._cached_data is not None:
+                        cache_key = "cell1_status" if iface == "mob1s1a1" else "cell2_status"
+                        iface_data = self._get_cached_json(cache_key)
+                    else:
+                        iface_json = self._ssh_exec(f"ubus call network.interface.{iface} status 2>/dev/null || echo '{{}}'")
+                        iface_data = json.loads(iface_json)
                     # Interface is active if it's up OR has an IP address
                     if iface_data.get("up", False) or iface_data.get("ipv4-address"):
                         active_iface = iface
@@ -311,11 +407,20 @@ class TeltonikaCollector(CellularCollector):
                 pass
 
         # Get APN from the active interface
-        apn = self._ssh_exec_safe(f"uci get network.{active_iface}.apn")
+        # Use cached data if available (collector script mode)
+        if self._cached_data is not None:
+            apn = self._get_cached("apn_sim1" if active_iface == "mob1s1a1" else "apn_sim2")
+        else:
+            apn = self._ssh_exec_safe(f"uci get network.{active_iface}.apn")
 
         # Get ICCID and status (these reflect the active SIM)
-        iccid = self._ssh_exec_safe("gsmctl -J")
-        sim_status = self._ssh_exec_safe("gsmctl -z")
+        # Use cached data if available (collector script mode)
+        if self._cached_data is not None:
+            iccid = self._get_cached("iccid")
+            sim_status = self._get_cached("sim_status")
+        else:
+            iccid = self._ssh_exec_safe("gsmctl -J")
+            sim_status = self._ssh_exec_safe("gsmctl -z")
 
         return {
             "apn": apn.strip(),

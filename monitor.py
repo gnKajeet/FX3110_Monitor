@@ -25,6 +25,10 @@ PUBLIC_IP_REFRESH_SECONDS = int(os.getenv("PUBLIC_IP_REFRESH_SECONDS", "0"))
 def build_cellular_collector():
     """Factory function to create the appropriate cellular collector."""
     if DEVICE_TYPE == "rutm50":
+        # Check if collector script mode is enabled
+        use_script = os.getenv("RUTM50_USE_COLLECTOR_SCRIPT", "false").lower() in ("true", "1", "yes")
+        script_path = os.getenv("RUTM50_COLLECTOR_SCRIPT_PATH", "/tmp/teltonika_collector.sh")
+
         return TeltonikaCollector(
             ssh_host=os.getenv("RUTM50_SSH_HOST", ""),
             ssh_user=os.getenv("RUTM50_SSH_USER", "root"),
@@ -34,6 +38,8 @@ def build_cellular_collector():
             ssh_strict=os.getenv("RUTM50_SSH_STRICT", "accept-new"),
             ssh_timeout=float(os.getenv("RUTM50_SSH_TIMEOUT", "5")),
             cell_iface=os.getenv("RUTM50_CELL_IFACE", "mob1s1a1"),
+            use_collector_script=use_script,
+            collector_script_path=script_path,
         )
     else:
         # Default to Inseego FX-series
@@ -77,6 +83,10 @@ def main():
             if public_ip:
                 last_public_ip = public_ip
             next_public_ip_refresh = now + PUBLIC_IP_REFRESH_SECONDS
+
+        # Refresh cellular data (single SSH call if collector script enabled)
+        if hasattr(cellular, 'refresh_data'):
+            cellular.refresh_data()
 
         # Collect cellular metrics
         signal = safe_get(cellular.get_signal_metrics, {})
