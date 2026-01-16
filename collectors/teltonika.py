@@ -248,7 +248,8 @@ class TeltonikaCollector(CellularCollector):
                 # First, parse active policy to see which interface is routing traffic
                 # Look for lines like "mob1s1a1 (100%)" or "wan (100%)"
                 # Find ALL interface percentages, then pick the one with 100%
-                for match in re.finditer(r"^\s*(\w+)\s*\((\d+)%\)", mwan_text, re.MULTILINE):
+                # Updated regex to work with both multiline and escaped/flattened output
+                for match in re.finditer(r"(?:^|\s)(\w+)\s*\((\d+)%\)", mwan_text, re.MULTILINE):
                     iface = match.group(1)
                     percent = int(match.group(2))
 
