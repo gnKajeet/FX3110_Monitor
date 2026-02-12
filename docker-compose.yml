@@ -10,6 +10,7 @@ services:
     user: "1000:1000"  # Run as host user to write to logs
     volumes:
       - ./logs:/logs
+      - ./config.yaml:/app/config.yaml:ro
       - /etc/localtime:/etc/localtime:ro  # Sync container time with host
       # - /home/pi/.ssh:/root/.ssh:ro  # RUTM50 SSH key (adjust host path)
     env_file:
@@ -30,6 +31,9 @@ services:
       - "8080:8080"  # Expose API/dashboard on all interfaces
     volumes:
       - ./logs:/logs:ro  # Read-only access to monitor logs
+      - ./config.yaml:/app/config.yaml:ro
+      - ./config.py:/app/config.py:ro
+      - ./collectors:/app/collectors:ro
     env_file:
       - .env
     depends_on:

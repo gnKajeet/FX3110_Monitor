@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
@@ -9,11 +10,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import csv
 from collections import deque
-from dotenv import load_dotenv
 
-load_dotenv()
+# Add parent directory so we can import config and collectors
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from config import load_config, get_device_config
 
-app = FastAPI(title="FX3110 Monitor API", version="1.0.0")
+app = FastAPI(title="FX3110 Monitor API", version="2.0.0")
 
 # CORS middleware for web dashboard
 app.add_middleware(
@@ -29,6 +31,9 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = Path("/app/static") if Path("/app/static").exists() else BASE_DIR / "static"
 TEMPLATE_DIR = Path("/app/templates") if Path("/app/templates").exists() else BASE_DIR / "templates"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Load config
+_config = load_config()
 
 if os.getenv("LOG_FILE"):
     LOG_FILE = Path(os.getenv("LOG_FILE", ""))
@@ -46,7 +51,7 @@ class LogParser:
         self.cache = deque(maxlen=MAX_CACHE_LINES)
         self.headers = []
         self.last_read_time = None
-        self.last_values = {}  # Track last known values for change detection
+        self.last_values = {}
 
     def _parse_line(self, row: Dict[str, str]) -> Dict:
         """Parse a TSV row into structured data."""
@@ -83,7 +88,7 @@ class LogParser:
                 "conn_dev_count": row.get("ConnDevCount", ""),
                 "conn_dev_names": row.get("ConnDevNames", ""),
             }
-        except (ValueError, KeyError) as e:
+        except (ValueError, KeyError):
             return None
 
     def reload_logs(self, tail_lines: int = MAX_CACHE_LINES):
@@ -108,7 +113,6 @@ class LogParser:
 
     def get_current_status(self) -> Dict:
         """Get the most recent status entry."""
-        # Always reload to get latest data
         self.reload_logs()
 
         if not self.cache:
@@ -118,9 +122,7 @@ class LogParser:
 
     def get_recent(self, count: int = 100) -> List[Dict]:
         """Get recent log entries."""
-        # Always reload to get latest data
         self.reload_logs()
-
         return list(self.cache)[-count:]
 
     def detect_changes(self) -> Dict:
@@ -129,9 +131,8 @@ class LogParser:
             return {"changes": []}
 
         changes = []
-        recent = list(self.cache)[-100:]  # Check last 100 entries
+        recent = list(self.cache)[-100:]
 
-        # Track fields to monitor for changes
         watch_fields = ["wan_source", "active_interface", "public_ip", "carrier", "apn", "iccid", "device_ipv4"]
 
         for i in range(1, len(recent)):
@@ -150,7 +151,7 @@ class LogParser:
                         "new_value": curr_val,
                     })
 
-        return {"changes": changes[-20:]}  # Return last 20 changes
+        return {"changes": changes[-20:]}
 
     def detect_anomalies(self, rsrp_threshold: int = 10, latency_threshold: int = 50) -> Dict:
         """Detect signal and latency anomalies."""
@@ -160,36 +161,31 @@ class LogParser:
         anomalies = []
         recent = list(self.cache)[-100:]
 
-        # Calculate baseline averages from first 50% of recent data
         baseline_data = recent[:len(recent)//2]
 
-        # Calculate average RSRP (convert "-90 dBm" to -90)
         rsrp_values = []
         for entry in baseline_data:
             rsrp_str = entry.get("rsrp", "")
             if rsrp_str:
                 try:
-                    rsrp_val = int(rsrp_str.split()[0])
+                    rsrp_val = int(str(rsrp_str).split()[0])
                     rsrp_values.append(rsrp_val)
                 except (ValueError, IndexError):
                     pass
 
         avg_rsrp = sum(rsrp_values) / len(rsrp_values) if rsrp_values else None
 
-        # Calculate average latency
         latency_values = [e["latency_ms"] for e in baseline_data if e.get("latency_ms")]
         avg_latency = sum(latency_values) / len(latency_values) if latency_values else None
 
-        # Check recent entries for anomalies
         check_data = recent[len(recent)//2:]
 
         for entry in check_data:
-            # RSRP anomaly detection
             if avg_rsrp:
                 rsrp_str = entry.get("rsrp", "")
                 if rsrp_str:
                     try:
-                        rsrp_val = int(rsrp_str.split()[0])
+                        rsrp_val = int(str(rsrp_str).split()[0])
                         if rsrp_val < (avg_rsrp - rsrp_threshold):
                             anomalies.append({
                                 "timestamp": entry["timestamp"],
@@ -200,7 +196,6 @@ class LogParser:
                     except (ValueError, IndexError):
                         pass
 
-            # Latency anomaly detection
             if avg_latency and entry.get("latency_ms"):
                 latency = entry["latency_ms"]
                 if latency > (avg_latency + latency_threshold):
@@ -211,7 +206,6 @@ class LogParser:
                         "severity": "warning" if latency < 500 else "critical"
                     })
 
-            # Connection failure
             if not entry.get("success"):
                 anomalies.append({
                     "timestamp": entry["timestamp"],
@@ -220,7 +214,7 @@ class LogParser:
                     "severity": "critical"
                 })
 
-        return {"anomalies": anomalies[-20:]}  # Return last 20 anomalies
+        return {"anomalies": anomalies[-20:]}
 
 
 # Initialize parser
@@ -235,7 +229,7 @@ async def root():
 
 @app.get("/api/status")
 async def get_status():
-    """Get current FX3110 status."""
+    """Get current device status."""
     return parser.get_current_status()
 
 
@@ -267,7 +261,6 @@ async def get_stats():
     if not recent:
         raise HTTPException(status_code=404, detail="No data available")
 
-    # Calculate statistics
     latencies = [e["latency_ms"] for e in recent if e.get("latency_ms")]
     successes = [e["success"] for e in recent]
 
@@ -276,7 +269,7 @@ async def get_stats():
         rsrp_str = e.get("rsrp", "")
         if rsrp_str:
             try:
-                rsrp_values.append(int(rsrp_str.split()[0]))
+                rsrp_values.append(int(str(rsrp_str).split()[0]))
             except (ValueError, IndexError):
                 pass
 
@@ -304,119 +297,198 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
+        "device_type": _config.get("device_type", "fx3110"),
         "log_file_exists": LOG_FILE.exists(),
         "cached_entries": len(parser.cache),
         "last_read": parser.last_read_time.isoformat() if parser.last_read_time else None,
     }
 
 
-def _ssh_exec(command: str) -> str:
-    """Execute SSH command on RUTM50 device."""
-    ssh_host = os.getenv("RUTM50_SSH_HOST", "")
-    ssh_user = os.getenv("RUTM50_SSH_USER", "root")
-    ssh_port = os.getenv("RUTM50_SSH_PORT", "22")
-    ssh_password = os.getenv("RUTM50_SSH_PASSWORD")
-    ssh_key = os.getenv("RUTM50_SSH_KEY")
-    ssh_strict = os.getenv("RUTM50_SSH_STRICT", "accept-new")
-    ssh_timeout = float(os.getenv("RUTM50_SSH_TIMEOUT", "5"))
+# --- SIM Operations ---
 
-    if not ssh_host:
-        raise HTTPException(status_code=500, detail="RUTM50_SSH_HOST not configured")
+def _get_sim_collector():
+    """Lazily create a collector for SIM operations."""
+    device_type = _config.get("device_type", "fx3110")
+    dev_cfg = get_device_config(_config)
 
-    # Build SSH command
-    cmd = [
-        "ssh",
-        "-p", ssh_port,
-        "-o", f"StrictHostKeyChecking={ssh_strict}",
-        "-o", f"ConnectTimeout={int(ssh_timeout)}",
-    ]
-
-    if ssh_key:
-        cmd.extend(["-i", ssh_key, "-o", "BatchMode=yes"])
-
-    cmd.append(f"{ssh_user}@{ssh_host}")
-    cmd.append(command)
-
-    if ssh_password and not ssh_key:
-        # Check for sshpass
-        if subprocess.run(["which", "sshpass"], capture_output=True).returncode != 0:
-            raise HTTPException(status_code=500, detail="sshpass is required for password-based SSH")
-        cmd = ["sshpass", "-p", ssh_password] + cmd
-
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=ssh_timeout + 2
+    if device_type == "fx4200":
+        from collectors.inseego_fx4200 import InseegoFX4200Collector
+        return InseegoFX4200Collector(
+            base_url=dev_cfg.get("base_url", "https://192.168.1.1"),
+            password=dev_cfg.get("password", ""),
+            verify_ssl=dev_cfg.get("verify_ssl", False),
+            session_refresh=dev_cfg.get("session_refresh", 500),
         )
-        if result.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"SSH command failed: {result.stderr.strip() or 'Unknown error'}"
-            )
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=500, detail="SSH command timed out")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SSH error: {str(e)}")
+    elif device_type == "rutm50":
+        return _create_rutm50_ssh_helper(dev_cfg)
+    return None
+
+
+def _create_rutm50_ssh_helper(dev_cfg: dict):
+    """Create a simple SSH helper for RUTM50 SIM operations."""
+    ssh_cfg = dev_cfg.get("ssh", {})
+
+    class RUTM50SIMHelper:
+        def __init__(self, ssh_cfg):
+            self.host = ssh_cfg.get("host", "")
+            self.user = ssh_cfg.get("user", "root")
+            self.port = str(ssh_cfg.get("port", 22))
+            self.password = ssh_cfg.get("password")
+            self.key = ssh_cfg.get("key")
+            self.strict = ssh_cfg.get("strict_host_key", "accept-new")
+            self.timeout = float(ssh_cfg.get("timeout", 5))
+
+        def _ssh_exec(self, command: str) -> str:
+            if not self.host:
+                raise RuntimeError("RUTM50 SSH host not configured")
+
+            cmd = [
+                "ssh", "-p", self.port,
+                "-o", f"StrictHostKeyChecking={self.strict}",
+                "-o", f"ConnectTimeout={int(self.timeout)}",
+            ]
+            if self.key:
+                cmd.extend(["-i", self.key, "-o", "BatchMode=yes"])
+            cmd.append(f"{self.user}@{self.host}")
+            cmd.append(command)
+
+            if self.password and not self.key:
+                cmd = ["sshpass", "-p", self.password] + cmd
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout + 2)
+            if result.returncode != 0:
+                raise RuntimeError(f"SSH failed: {result.stderr.strip()}")
+            return result.stdout.strip()
+
+    return RUTM50SIMHelper(ssh_cfg)
+
+
+_sim_collector = None
+
+
+def _get_cached_sim_collector():
+    global _sim_collector
+    if _sim_collector is None:
+        _sim_collector = _get_sim_collector()
+    return _sim_collector
 
 
 @app.get("/api/sim/current")
 async def get_current_sim():
-    """Get current active SIM slot (RUTM50 only)."""
-    device_type = os.getenv("DEVICE_TYPE", "fx3110").strip().lower()
+    """Get current active SIM info."""
+    device_type = _config.get("device_type", "fx3110")
+    collector = _get_cached_sim_collector()
 
-    if device_type != "rutm50":
-        raise HTTPException(status_code=400, detail="SIM switching only supported for RUTM50")
+    if collector is None:
+        raise HTTPException(status_code=400, detail="Device does not support SIM operations")
+
+    if device_type == "fx4200":
+        try:
+            collector.refresh_data()
+            slots = collector.get_sim_slots_detail()
+            active_imsi = collector.get_active_sim_imsi()
+            return {
+                "device_type": "fx4200",
+                "active_imsi": active_imsi,
+                "slots": slots,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    elif device_type == "rutm50":
+        try:
+            slot = collector._ssh_exec("gsmctl -T")
+            return {"device_type": "rutm50", "current_slot": int(slot.strip())}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    raise HTTPException(status_code=400, detail="SIM operations not supported for this device")
+
+
+@app.get("/api/sim/slots")
+async def get_sim_slots():
+    """Get all SIM slot details (FX4200)."""
+    device_type = _config.get("device_type", "fx3110")
+    collector = _get_cached_sim_collector()
+
+    if device_type != "fx4200" or collector is None:
+        raise HTTPException(status_code=400, detail="SIM slots endpoint only available for FX4200")
 
     try:
-        slot = _ssh_exec("gsmctl -T")
-        return {"current_slot": int(slot.strip()), "device_type": "rutm50"}
-    except ValueError:
-        raise HTTPException(status_code=500, detail=f"Invalid SIM slot response: {slot}")
+        collector.refresh_data()
+        return {"slots": collector.get_sim_slots_detail()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/sim/switch")
-async def switch_sim():
-    """Switch to the other SIM slot (RUTM50 only)."""
-    device_type = os.getenv("DEVICE_TYPE", "fx3110").strip().lower()
+async def switch_sim(target_iccid: Optional[str] = None):
+    """Switch to another SIM."""
+    device_type = _config.get("device_type", "fx3110")
+    collector = _get_cached_sim_collector()
 
-    if device_type != "rutm50":
-        raise HTTPException(status_code=400, detail="SIM switching only supported for RUTM50")
+    if collector is None:
+        raise HTTPException(status_code=400, detail="Device does not support SIM switching")
 
-    try:
-        # Get current slot
-        current_slot_str = _ssh_exec("gsmctl -T")
-        current_slot = int(current_slot_str.strip())
+    if device_type == "fx4200":
+        try:
+            if target_iccid:
+                result = collector.switch_sim_by_iccid(target_iccid)
+                return {"success": True, "switched_to_iccid": target_iccid, "result": result}
+            else:
+                # Auto-switch: find the inactive SIM and switch to it
+                collector.refresh_data()
+                slots = collector.get_sim_slots_detail()
+                active_imsi = collector.get_active_sim_imsi()
 
-        # Switch to the other slot
-        switch_response = _ssh_exec("gsmctl -Y")
+                target_slot = None
+                for slot in slots:
+                    if slot.get("imsi") != active_imsi and slot.get("card_state") == 2:
+                        target_slot = slot
+                        break
 
-        # Validate the response
-        if switch_response.strip() != "OK":
-            raise HTTPException(
-                status_code=500,
-                detail=f"SIM switch command failed with response: {switch_response}"
-            )
+                if not target_slot:
+                    raise HTTPException(status_code=400, detail="No alternative SIM available")
 
-        # Wait a moment for the switch to complete
-        import time
-        time.sleep(2)
+                result = collector.switch_sim_by_imsi(target_slot["imsi"])
+                return {
+                    "success": True,
+                    "switched_from": active_imsi,
+                    "switched_to": target_slot.get("imsi"),
+                    "switched_to_carrier": target_slot.get("oper_name", ""),
+                    "result": result,
+                }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
-        # Verify new slot
-        new_slot_str = _ssh_exec("gsmctl -T")
-        new_slot = int(new_slot_str.strip())
+    elif device_type == "rutm50":
+        try:
+            current_slot_str = collector._ssh_exec("gsmctl -T")
+            current_slot = int(current_slot_str.strip())
 
-        return {
-            "success": True,
-            "previous_slot": current_slot,
-            "current_slot": new_slot,
-            "message": f"Switched from SIM {current_slot} to SIM {new_slot}"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid SIM slot response: {str(e)}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SIM switch failed: {str(e)}")
+            switch_response = collector._ssh_exec("gsmctl -Y")
+            if switch_response.strip() != "OK":
+                raise HTTPException(status_code=500, detail=f"SIM switch failed: {switch_response}")
+
+            import time
+            time.sleep(2)
+
+            new_slot_str = collector._ssh_exec("gsmctl -T")
+            new_slot = int(new_slot_str.strip())
+
+            return {
+                "success": True,
+                "previous_slot": current_slot,
+                "current_slot": new_slot,
+                "message": f"Switched from SIM {current_slot} to SIM {new_slot}"
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    raise HTTPException(status_code=400, detail="SIM switching not supported for this device")
 
 
 @app.on_event("startup")

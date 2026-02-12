@@ -16,6 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
+COPY config.py .
 COPY monitor.py .
 COPY collectors/ ./collectors/
 # Keep FX3110_Monitor.py for backward compatibility

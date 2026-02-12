@@ -1,0 +1,46 @@
+# FX3110 Monitor Configuration
+# Copy to config.yaml and adjust values for your deployment.
+# Environment variables override these values (for Docker/CI).
+
+# Which device to monitor: fx3110, rutm50, or fx4200
+device_type: fx4200
+
+# Network monitoring settings
+network:
+  bind_interface: eth0       # Interface for ping tests (null for auto)
+  ping_target: 8.8.8.8
+  public_ip_refresh: 60     # Seconds between public IP checks (0 = every cycle)
+
+# Polling / logging
+monitor:
+  interval: 5                # Seconds between readings
+
+# Device-specific settings (only the active device_type section is used)
+devices:
+
+  # Inseego FX3110 — HTTP scraping of local web UI
+  fx3110:
+    base_url: http://192.168.1.1
+
+  # Teltonika RUTM50 / RUTX — SSH + gsmctl / ubus
+  rutm50:
+    ssh:
+      host: 192.168.1.1
+      user: root
+      port: 22
+      # Use password OR key, not both
+      password: null
+      key: null
+      strict_host_key: accept-new
+      timeout: 5
+    cell_interface: mob1s1a1
+    collector_script:
+      enabled: false           # Set true after deploying teltonika_collector.sh
+      path: /tmp/teltonika_collector.sh
+
+  # Inseego FX4200 — ubus JSON-RPC over HTTPS
+  fx4200:
+    base_url: https://192.168.1.1    # Direct URL, or https://localhost:8443 via tunnel
+    password: your_admin_password     # FX4200 admin password
+    verify_ssl: false                 # Self-signed cert on device
+    session_refresh: 500              # Refresh auth token before 600s expiry

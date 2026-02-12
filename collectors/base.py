@@ -59,6 +59,19 @@ class CellularCollector(ABC):
         """
         pass
 
+    def refresh_data(self) -> bool:
+        """
+        Refresh cached data from the device.
+        Called once per monitoring cycle before get_* methods.
+        Override in subclasses that batch their API calls.
+        Returns True if data was successfully refreshed.
+        """
+        return True
+
+    def clear_cache(self):
+        """Clear any cached data."""
+        pass
+
     def get_all(self) -> Dict:
         """
         Get all metrics in a single call.

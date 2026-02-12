@@ -1,50 +1,46 @@
 #!/usr/bin/env python3
 """
 Cellular Router Monitor - Modular Version
-Supports Inseego FX-series and Teltonika RUT-series routers.
+Supports Inseego FX3110, Inseego FX4200, and Teltonika RUT-series routers.
 """
-import os
 import time
 from datetime import datetime
-from dotenv import load_dotenv
 
-from collectors import InseegoCollector, TeltonikaCollector, RPiNetworkCollector
-
-load_dotenv()
-
-# --- Configuration from Environment ---
-DEVICE_TYPE = os.getenv("DEVICE_TYPE", "fx3110").strip().lower()
-BIND_INTERFACE = os.getenv("BIND_INTERFACE") or None
-DEST = os.getenv("DEST", "8.8.8.8")
-
-# Polling intervals
-MAIN_LOOP_INTERVAL = int(os.getenv("MAIN_LOOP_INTERVAL", "5"))
-PUBLIC_IP_REFRESH_SECONDS = int(os.getenv("PUBLIC_IP_REFRESH_SECONDS", "0"))
+from config import load_config, get_device_config
+from collectors import InseegoCollector, InseegoFX4200Collector, TeltonikaCollector, RPiNetworkCollector
 
 
-def build_cellular_collector():
+def build_cellular_collector(config: dict):
     """Factory function to create the appropriate cellular collector."""
-    if DEVICE_TYPE == "rutm50":
-        # Check if collector script mode is enabled
-        use_script = os.getenv("RUTM50_USE_COLLECTOR_SCRIPT", "false").lower() in ("true", "1", "yes")
-        script_path = os.getenv("RUTM50_COLLECTOR_SCRIPT_PATH", "/tmp/teltonika_collector.sh")
+    device_type = config.get("device_type", "fx3110").strip().lower()
+    dev_cfg = get_device_config(config)
 
+    if device_type == "fx4200":
+        return InseegoFX4200Collector(
+            base_url=dev_cfg.get("base_url", "https://192.168.1.1"),
+            password=dev_cfg.get("password", ""),
+            verify_ssl=dev_cfg.get("verify_ssl", False),
+            session_refresh=dev_cfg.get("session_refresh", 500),
+        )
+    elif device_type == "rutm50":
+        ssh_cfg = dev_cfg.get("ssh", {})
+        script_cfg = dev_cfg.get("collector_script", {})
         return TeltonikaCollector(
-            ssh_host=os.getenv("RUTM50_SSH_HOST", ""),
-            ssh_user=os.getenv("RUTM50_SSH_USER", "root"),
-            ssh_port=int(os.getenv("RUTM50_SSH_PORT", "22")),
-            ssh_password=os.getenv("RUTM50_SSH_PASSWORD"),
-            ssh_key=os.getenv("RUTM50_SSH_KEY"),
-            ssh_strict=os.getenv("RUTM50_SSH_STRICT", "accept-new"),
-            ssh_timeout=float(os.getenv("RUTM50_SSH_TIMEOUT", "5")),
-            cell_iface=os.getenv("RUTM50_CELL_IFACE", "mob1s1a1"),
-            use_collector_script=use_script,
-            collector_script_path=script_path,
+            ssh_host=ssh_cfg.get("host", ""),
+            ssh_user=ssh_cfg.get("user", "root"),
+            ssh_port=int(ssh_cfg.get("port", 22)),
+            ssh_password=ssh_cfg.get("password"),
+            ssh_key=ssh_cfg.get("key"),
+            ssh_strict=ssh_cfg.get("strict_host_key", "accept-new"),
+            ssh_timeout=float(ssh_cfg.get("timeout", 5)),
+            cell_iface=dev_cfg.get("cell_interface", "mob1s1a1"),
+            use_collector_script=script_cfg.get("enabled", False),
+            collector_script_path=script_cfg.get("path", "/tmp/teltonika_collector.sh"),
         )
     else:
-        # Default to Inseego FX-series
+        # Default to Inseego FX3110
         return InseegoCollector(
-            base_url=os.getenv("DEVICE_BASE", "http://192.168.1.1")
+            base_url=dev_cfg.get("base_url", "http://192.168.1.1")
         )
 
 
@@ -58,9 +54,21 @@ def safe_get(fn, default=None):
 
 def main():
     """Main monitoring loop."""
+    config = load_config()
+    net_cfg = config.get("network", {})
+    mon_cfg = config.get("monitor", {})
+
+    device_type = config.get("device_type", "fx3110")
+    bind_interface = net_cfg.get("bind_interface") or None
+    dest = net_cfg.get("ping_target", "8.8.8.8")
+    loop_interval = mon_cfg.get("interval", 5)
+    public_ip_refresh = net_cfg.get("public_ip_refresh", 0)
+
     # Initialize collectors
-    cellular = build_cellular_collector()
+    cellular = build_cellular_collector(config)
     network = RPiNetworkCollector()
+
+    print(f"[Monitor] Device type: {device_type}", flush=True)
 
     # Print TSV header
     print(
@@ -82,11 +90,10 @@ def main():
             public_ip = safe_get(network.get_public_ip, last_public_ip)
             if public_ip:
                 last_public_ip = public_ip
-            next_public_ip_refresh = now + PUBLIC_IP_REFRESH_SECONDS
+            next_public_ip_refresh = now + public_ip_refresh
 
-        # Refresh cellular data (single SSH call if collector script enabled)
-        if hasattr(cellular, 'refresh_data'):
-            cellular.refresh_data()
+        # Refresh cellular data (batch API calls)
+        cellular.refresh_data()
 
         # Collect cellular metrics
         signal = safe_get(cellular.get_signal_metrics, {})
@@ -96,8 +103,8 @@ def main():
         device_info = safe_get(cellular.get_device_info, {})
 
         # Perform ping test
-        ping_result = safe_get(lambda: network.ping(DEST, BIND_INTERFACE), {})
-        active_if = safe_get(lambda: network.get_active_interface(DEST), "unknown")
+        ping_result = safe_get(lambda: network.ping(dest, bind_interface), {})
+        active_if = safe_get(lambda: network.get_active_interface(dest), "unknown")
 
         # Format timestamp
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -107,7 +114,7 @@ def main():
             f"{timestamp}\t"
             f"{ping_result.get('source_ip', '')}\t"
             f"{active_if}\t"
-            f"{DEST}\t"
+            f"{dest}\t"
             f"{ping_result.get('success', False)}\t"
             f"{ping_result.get('latency_ms') or ''}\t"
             f"{last_public_ip}\t"
@@ -133,7 +140,7 @@ def main():
             flush=True,
         )
 
-        time.sleep(MAIN_LOOP_INTERVAL)
+        time.sleep(loop_interval)
 
 
 if __name__ == "__main__":
